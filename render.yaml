@@ -1,0 +1,10 @@
+# Render blueprint for the Mini Royale relay (free plan, no credit card).
+# Nothing here runs on a player's PC - only relay.py runs on Render.
+services:
+  - type: web
+    name: mini-royale-relay
+    runtime: python
+    plan: free
+    buildCommand: echo "no dependencies"
+    startCommand: python relay.py
+    healthCheckPath: /

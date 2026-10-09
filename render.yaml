@@ -12,7 +12,9 @@ services:
       # Secrets are typed into the Render dashboard, never written in a file.
       - key: ADMIN_PASSWORD            # password of the private admin page at /admin (10+ characters)
         sync: false
-      - key: UPSTASH_REDIS_REST_URL    # free Upstash Redis database that keeps the player accounts
+      - key: REDIS_URL                 # Redis database that keeps the player accounts (redis://user:password@host:port)
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL    # or instead of REDIS_URL: a free Upstash Redis database
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false

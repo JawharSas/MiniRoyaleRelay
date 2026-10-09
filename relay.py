@@ -22,8 +22,10 @@ On its own socket the host also sends {"t":"info",...} (what the room is doing) 
 
 Settings (environment variables on the web host, never in this file):
   ADMIN_PASSWORD            password of the admin page at /admin (10+ characters; the page is off without it)
-  UPSTASH_REDIS_REST_URL    } free Upstash Redis database that keeps the accounts; without these two the
-  UPSTASH_REDIS_REST_TOKEN  } accounts live in memory only and are lost whenever the server restarts
+  REDIS_URL                 Redis database that keeps the accounts (redis://user:password@host:port, e.g. Redis Cloud)
+  UPSTASH_REDIS_REST_URL    } or instead: a free Upstash Redis database, reached over HTTPS
+  UPSTASH_REDIS_REST_TOKEN  }
+  Without a database the accounts live in memory only and are lost whenever the server restarts.
 """
 import asyncio
 import base64
@@ -33,8 +35,11 @@ import json
 import os
 import random
 import secrets
+import socket
+import ssl
 import struct
 import time
+import urllib.parse
 import urllib.request
 
 PROTO = 2                       # relay protocol version (the game sends it as "v")
@@ -53,6 +58,7 @@ EVENTS = {"say", "drops", "gift", "heal", "meteor", "smite", "xp", "storm"}     
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DB_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 DB_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+REDIS_URL = os.environ.get("REDIS_URL", "")
 T0 = time.time()
 try:
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "admin.html"), "rb") as _fh:
@@ -158,9 +164,50 @@ rooms = {}
 
 
 # ------------------------------ accounts ------------------------------
+def resp_read(f):
+    """One answer in the Redis wire format."""
+    line = f.readline()
+    if not line:
+        raise OSError("database closed the connection")
+    k, rest = line[:1], line[1:].strip()
+    if k == b"+":
+        return rest.decode()
+    if k == b"-":
+        raise OSError("database: " + rest.decode(errors="replace")[:60])
+    if k == b":":
+        return int(rest)
+    if k == b"$":
+        return f.read(int(rest) + 2)[:-2].decode() if int(rest) >= 0 else None
+    if k == b"*":
+        return [resp_read(f) for _ in range(int(rest))] if int(rest) >= 0 else None
+    raise OSError("database sent something unexpected")
+
+
+def redis_call(*cmd):
+    """One command to a normal Redis server (REDIS_URL = redis://user:password@host:port, or rediss:// with TLS)."""
+    u = urllib.parse.urlsplit(REDIS_URL)
+    sk = socket.create_connection((u.hostname, u.port or 6379), timeout=8)
+    try:
+        if u.scheme == "rediss":
+            sk = ssl.create_default_context().wrap_socket(sk, server_hostname=u.hostname)
+        f = sk.makefile("rb")
+
+        def send(*a):
+            parts = [str(x).encode() for x in a]
+            sk.sendall(b"*%d\r\n" % len(parts) + b"".join(b"$%d\r\n%s\r\n" % (len(p), p) for p in parts))
+            return resp_read(f)
+        if u.password:
+            send("AUTH", *([urllib.parse.unquote(u.username)] if u.username else []), urllib.parse.unquote(u.password))
+        return send(*cmd)
+    finally:
+        sk.close()
+
+
 def db_call(*cmd):
-    """One Redis command over Upstash's HTTPS REST API (blocking: always run it in a thread)."""
-    req = urllib.request.Request(DB_URL, data=json.dumps(cmd).encode(),
+    """One Redis command (blocking: always run it in a thread). REDIS_URL if set, else Upstash's HTTPS REST API."""
+    if REDIS_URL:
+        return redis_call(*cmd)
+    req =urllib.request.Request(DB_URL, data=json.dumps(cmd).encode(),
                                  headers={"Authorization": "Bearer " + DB_TOKEN, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=8) as r:
         return json.loads(r.read()).get("result")
@@ -170,7 +217,7 @@ class Store:
     """Accounts by lower-case name. Kept in memory; every change is also written to the database when one is set up."""
 
     def __init__(s):
-        s.acc, s.dirty, s.db = {}, set(), bool(DB_URL.startswith("https://") and DB_TOKEN)
+        s.acc, s.dirty, s.db = {}, set(), bool(REDIS_URL or (DB_URL.startswith("https://") and DB_TOKEN))
         s.loaded, s.secret = not s.db, secrets.token_hex(32)
 
     async def call(s, *cmd):

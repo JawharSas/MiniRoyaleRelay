@@ -198,6 +198,8 @@ function draw() {
   stat("Players online", s.rooms.reduce((n, r) => n + 1 + r.players.length, 0));
   stat("Accounts", s.acc.length);
   stat("Server awake for", ago(s.up));
+  if (s.db) stat("Stored data", s.enc ? "encrypted" : "NOT encrypted (no DATA_KEY)", s.enc ? "good" : "warn");
+  if (s.skipped) stat("Records refused", s.skipped + " (changed outside the server)", "bad");
   if (!s.db) stat("Accounts are", "NOT saved (no database set up)", "warn");
   else if (!s.loaded) stat("Database", "loading...", "warn");
   else stat("Database", s.pending ? "saving..." : "saved", s.pending ? "warn" : "good");
@@ -238,7 +240,7 @@ function draw() {
     if (a.ban) btn("Unban", {a: "unban", u: a.u});
     else btn("Ban", {a: "ban", u: a.u}, "Ban " + a.u + "? They can no longer play online.", "danger");
     const p = el("button", "New password", "small");
-    p.onclick = () => { const v = prompt("New password for " + a.u + " (6-64 characters):"); if (v) act({a: "pw", u: a.u, p: v}); };
+    p.onclick = () => { const v = prompt("New password for " + a.u + " (8-64 characters):"); if (v) act({a: "pw", u: a.u, p: v}); };
     acts.append(p);
     btn("Delete", {a: "del", u: a.u}, "Delete the account " + a.u + " for good?", "danger");
     const name = el("td", a.u);

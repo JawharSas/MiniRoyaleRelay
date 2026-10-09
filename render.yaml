@@ -1,5 +1,5 @@
 # Render blueprint for the Mini Royale relay (free plan, no credit card).
-# Nothing here runs on a player's PC - only relay.py runs on Render.
+# Nothing here runs on a player's PC - only relay.py (with admin.html next to it) runs on Render.
 services:
   - type: web
     name: mini-royale-relay
@@ -8,3 +8,11 @@ services:
     buildCommand: echo "no dependencies"
     startCommand: python relay.py
     healthCheckPath: /
+    envVars:
+      # Secrets are typed into the Render dashboard, never written in a file.
+      - key: ADMIN_PASSWORD            # password of the private admin page at /admin (10+ characters)
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL    # free Upstash Redis database that keeps the player accounts
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

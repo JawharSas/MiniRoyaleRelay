@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Mini Royale Admin</title>
+<style>
+  :root {
+    --bg: #12141c; --panel: #1b1f2b; --line: #2c3244; --ink: #e9ecf5; --dim: #98a1b8;
+    --gold: #ffdc5a; --green: #5fd38a; --red: #ff6b6b; --blue: #6fa8ff; --field: #0e1017;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font: 800 20px/1 Consolas, Menlo, monospace; letter-spacing: 1px; color: var(--gold); }
+  h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--dim); font-size: 13px; }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .warn { color: var(--gold); }
+  .bad { color: var(--red); }
+  .good { color: var(--green); }
+  input, select, button { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; min-width: 0; }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  button { background: #2a3350; cursor: pointer; font-weight: 600; }
+  button:hover { background: #35406a; }
+  button.go { background: #2f6d48; }
+  button.go:hover { background: #398557; }
+  button.danger { background: #6d2f38; }
+  button.danger:hover { background: #8a3a45; }
+  button.small { padding: 3px 8px; font-size: 12.5px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .row label { color: var(--dim); font-size: 13px; }
+  .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .ev { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+  .ev strong { font-size: 14.5px; }
+  .ev p { margin: 0; color: var(--dim); font-size: 12.5px; }
+  .ev .in { display: flex; gap: 6px; }
+  .ev .in > * { flex: 1; }
+  .ev .in input[type=number] { flex: 0 0 74px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  td.acts { display: flex; gap: 5px; }
+  .code { font: 700 15px Consolas, Menlo, monospace; color: var(--green); letter-spacing: 2px; }
+  .empty { color: var(--dim); padding: 8px 0; }
+  #log { margin: 0; padding: 0; list-style: none; color: var(--dim); font-size: 13px; max-height: 180px; overflow-y: auto; }
+  #log time { color: var(--ink); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #000; border: 1px solid var(--gold); color: var(--gold);
+           padding: 9px 16px; border-radius: 8px; display: none; max-width: calc(100vw - 32px); }
+  #login { max-width: 340px; margin: 12vh auto 0; display: grid; gap: 10px; padding: 0 16px; }
+  #login p { margin: 0; color: var(--dim); font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<form id="login" hidden>
+  <h1>MINI ROYALE ADMIN</h1>
+  <p>Private page. Type the admin password.</p>
+  <input id="pw" type="password" autocomplete="current-password" placeholder="Admin password" required>
+  <button class="go">Log in</button>
+  <p id="lerr" class="bad"></p>
+</form>
+
+<div id="app" hidden>
+  <header>
+    <h1>MINI ROYALE ADMIN</h1>
+    <div class="stats" id="stats"></div>
+    <button id="out" class="small" style="margin-left:auto">Log out</button>
+  </header>
+  <main>
+    <section>
+      <h2>Admin events</h2>
+      <div class="row">
+        <label for="room">Send to</label>
+        <select id="room"></select>
+        <label for="who">Player (empty = everyone)</label>
+        <input id="who" maxlength="12" placeholder="everyone" size="14">
+      </div>
+      <div class="events" id="events"></div>
+    </section>
+    <section>
+      <h2>Online rooms</h2>
+      <div class="scroll"><table><thead><tr><th>Code</th><th>Host</th><th>Players</th><th>State</th><th>Mode</th><th>Open for</th><th>Data</th><th></th></tr></thead><tbody id="rooms"></tbody></table></div>
+      <div class="empty" id="norooms">Nobody is hosting an online room right now.</div>
+    </section>
+    <section>
+      <h2>Accounts</h2>
+      <div class="row"><input id="find" placeholder="Search a username" size="22"></div>
+      <div class="scroll"><table><thead><tr><th>Username</th><th>In room</th><th>Games</th><th>Wins</th><th>Kills</th><th>Best</th><th>Created</th><th>Last seen</th><th></th></tr></thead><tbody id="accs"></tbody></table></div>
+      <div class="empty" id="noaccs">No accounts yet.</div>
+    </section>
+    <section>
+      <h2>What you did</h2>
+      <ul id="log"></ul>
+    </section>
+  </main>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const WEAPONS = ["Minigun", "Rocket", "Grenade Launcher", "Flamethrower", "Sniper", "LMG", "Auto Shotgun", "Crossbow", "DMR",
+                 "Rifle", "Shotgun", "Revolver", "SMG", "Machine Pistol", "Pistol"];
+// k = event name the game knows, f = extra inputs it needs
+const EVENTS = [
+  {k: "say", t: "Announcement", d: "A big gold message on every screen.", f: ["text"], b: "Send message"},
+  {k: "drops", t: "Supply drop rain", d: "Legendary supply drops fall all over the map.", f: ["n"], n: 6, b: "Drop them"},
+  {k: "gift", t: "Give a weapon", d: "Hands the weapon to the player (or to everyone).", f: ["w"], b: "Give"},
+  {k: "heal", t: "Full heal", d: "Full health and shield.", f: [], b: "Heal"},
+  {k: "xp", t: "Level up", d: "Enough XP for an instant level and a perk choice.", f: [], b: "Give XP"},
+  {k: "meteor", t: "Meteor shower", d: "Explosions land near random fighters. Dangerous!", f: ["n"], n: 8, b: "Launch", danger: 1},
+  {k: "smite", t: "Smite a player", d: "A huge blast right on the player typed above.", f: [], b: "Smite", danger: 1, who: 1},
+  {k: "storm", t: "Storm surge", d: "Battle Royale only: the storm jumps 30 seconds closer.", f: [], b: "Surge", danger: 1},
+];
+let tok = "", state = null, timer = 0;
+try { tok = sessionStorage.getItem("mr_admin") || ""; } catch (e) {}
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+function toast(t) {
+  const b = $("toast");
+  b.textContent = t;
+  b.style.display = "block";
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { b.style.display = "none"; }, 3500);
+}
+function ago(sec) {
+  if (sec < 90) return Math.max(0, Math.round(sec)) + " s";
+  if (sec < 5400) return Math.round(sec / 60) + " min";
+  if (sec < 172800) return Math.round(sec / 3600) + " h";
+  return Math.round(sec / 86400) + " days";
+}
+async function api(path, body) {
+  const r = await fetch(path, {method: body ? "POST" : "GET", headers: {"X-Admin": tok, "Content-Type": "application/json"},
+                               body: body ? JSON.stringify(body) : undefined, cache: "no-store"});
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { show(false); throw new Error("Log in again"); }
+  if (!r.ok) throw new Error(j.m || "Server error " + r.status);
+  return j;
+}
+function show(inside) {
+  $("login").hidden = inside;
+  $("app").hidden = !inside;
+  clearInterval(timer);
+  if (inside) { refresh(); timer = setInterval(refresh, 5000); }
+  else { tok = ""; try { sessionStorage.removeItem("mr_admin"); } catch (e) {} $("pw").focus(); }
+}
+async function act(body, sure) {
+  if (sure && !confirm(sure)) return;
+  try { toast((await api("/admin/do", body)).m); refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+function drawEvents() {
+  for (const ev of EVENTS) {
+    const box = el("div", undefined, "ev"), ins = el("div", undefined, "in"), get = {};
+    box.append(el("strong", ev.t), el("p", ev.d));
+    for (const f of ev.f) {
+      let i;
+      if (f === "w") { i = el("select"); for (const w of WEAPONS) i.append(el("option", w)); }
+      else if (f === "n") { i = el("input"); i.type = "number"; i.min = 1; i.max = 20; i.value = ev.n; }
+      else { i = el("input"); i.maxLength = 70; i.placeholder = "Your message"; }
+      i.setAttribute("aria-label", ev.t);
+      get[f] = i;
+      ins.append(i);
+    }
+    const b = el("button", ev.b, ev.danger ? "danger" : "go");
+    b.onclick = () => {
+      const who = $("who").value.trim();
+      if (ev.who && !who) return toast("Type the player's username first");
+      if (ev.k === "say" && !get.text.value.trim()) return toast("Type a message first");
+      const body = {a: "event", k: ev.k, room: $("room").value, who: who};
+      for (const f in get) body[f] = f === "n" ? Number(get[f].value) || 1 : get[f].value;
+      act(body);
+    };
+    ins.append(b);
+    box.append(ins);
+    $("events").append(box);
+  }
+}
+
+function draw() {
+  const s = state, now = Date.now() / 1000;
+  const st = $("stats");
+  st.replaceChildren();
+  const stat = (label, val, cls) => { const d = el("span", label + " "); d.append(el("b", String(val), cls)); st.append(d); };
+  stat("Rooms", s.rooms.length);
+  stat("Players online", s.rooms.reduce((n, r) => n + 1 + r.players.length, 0));
+  stat("Accounts", s.acc.length);
+  stat("Server awake for", ago(s.up));
+  if (!s.db) stat("Accounts are", "NOT saved (no database set up)", "warn");
+  else if (!s.loaded) stat("Database", "loading...", "warn");
+  else stat("Database", s.pending ? "saving..." : "saved", s.pending ? "warn" : "good");
+
+  const sel = $("room"), keep = sel.value;
+  sel.replaceChildren(el("option", "All rooms"));
+  sel.firstChild.value = "*";
+  for (const r of s.rooms) { const o = el("option", r.c + "  (" + r.host + ")"); o.value = r.c; sel.append(o); }
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "*";
+
+  const tb = $("rooms");
+  tb.replaceChildren();
+  $("norooms").hidden = s.rooms.length > 0;
+  for (const r of s.rooms) {
+    const tr = el("tr"), acts = el("td", undefined, "acts"), b = el("button", "Close room", "small danger");
+    b.onclick = () => act({a: "close", room: r.c}, "Close room " + r.c + " and disconnect everyone in it?");
+    acts.append(b);
+    tr.append(el("td", r.c, "code"), el("td", r.host), el("td", r.players.join(", ") || "-"),
+              el("td", {lobby: "in the lobby", play: "playing", over: "results"}[r.s] || r.s), el("td", r.m || "-"),
+              el("td", ago(r.age), "num"), el("td", r.mb + " MB", "num"), acts);
+    tb.append(tr);
+  }
+
+  const q = $("find").value.trim().toLowerCase(), ab = $("accs");
+  const list = s.acc.filter(a => a.u.toLowerCase().includes(q)).sort((a, b) => (b.on ? 1 : 0) - (a.on ? 1 : 0) || b.seen - a.seen).slice(0, 200);
+  ab.replaceChildren();
+  $("noaccs").hidden = list.length > 0;
+  $("noaccs").textContent = s.acc.length ? "No account matches that search." : "No accounts yet.";
+  for (const a of list) {
+    const tr = el("tr"), acts = el("td", undefined, "acts");
+    const btn = (label, body, sure, cls) => { const b = el("button", label, "small " + (cls || "")); b.onclick = () => act(body, sure); acts.append(b); };
+    if (a.on) {
+      const t = el("button", "Target", "small");
+      t.onclick = () => { $("who").value = a.u; $("room").value = a.on; toast("Events now aim at " + a.u); };
+      acts.append(t);
+      btn("Kick", {a: "kick", u: a.u}, "Kick " + a.u + " out of the room?");
+    }
+    if (a.ban) btn("Unban", {a: "unban", u: a.u});
+    else btn("Ban", {a: "ban", u: a.u}, "Ban " + a.u + "? They can no longer play online.", "danger");
+    const p = el("button", "New password", "small");
+    p.onclick = () => { const v = prompt("New password for " + a.u + " (6-64 characters):"); if (v) act({a: "pw", u: a.u, p: v}); };
+    acts.append(p);
+    btn("Delete", {a: "del", u: a.u}, "Delete the account " + a.u + " for good?", "danger");
+    const name = el("td", a.u);
+    if (a.ban) name.append(el("span", "  banned", "bad"));
+    tr.append(name, el("td", a.on || "-", a.on ? "code" : ""), el("td", a.g, "num"), el("td", a.w, "num"), el("td", a.k, "num"),
+              el("td", a.bk, "num"), el("td", ago(now - a.c) + " ago", "num"), el("td", ago(now - a.seen) + " ago", "num"), acts);
+    ab.append(tr);
+  }
+
+  const lg = $("log");
+  lg.replaceChildren();
+  for (const [t, text] of s.log) {
+    const li = el("li"), tm = el("time", new Date(t * 1000).toLocaleTimeString());
+    li.append(tm, text);
+    lg.append(li);
+  }
+  if (!s.log.length) lg.append(el("li", "Nothing yet."));
+}
+async function refresh() {
+  try { state = await api("/admin/state"); draw(); } catch (e) { if (tok) toast(e.message); }
+}
+
+$("login").onsubmit = async e => {
+  e.preventDefault();
+  $("lerr").textContent = "";
+  try {
+    const r = await fetch("/admin/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pw: $("pw").value})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.m || "Could not log in");
+    tok = j.tok;
+    try { sessionStorage.setItem("mr_admin", tok); } catch (err) {}
+    $("pw").value = "";
+    show(true);
+  } catch (err) { $("lerr").textContent = err.message; }
+};
+$("out").onclick = () => show(false);
+$("find").oninput = () => { if (state) draw(); };
+drawEvents();
+show(!!tok);
+</script>
+</body>
+</html>

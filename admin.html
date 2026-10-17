@@ -85,8 +85,22 @@
     </section>
     <section>
       <h2>Online rooms</h2>
-      <div class="scroll"><table><thead><tr><th>Code</th><th>Host</th><th>Players</th><th>State</th><th>Mode</th><th>Open for</th><th>Data</th><th></th></tr></thead><tbody id="rooms"></tbody></table></div>
-      <div class="empty" id="norooms">Nobody is hosting an online room right now.</div>
+      <div class="scroll"><table><thead><tr><th>Code</th><th>Type</th><th>Host</th><th>Players</th><th>State</th><th>Mode</th><th>Open for</th><th>Data</th><th></th></tr></thead><tbody id="rooms"></tbody></table></div>
+      <div class="empty" id="norooms">Nobody is in an online room right now. (LAN games never show here - only quick play and room-code games.)</div>
+      <div class="empty" id="parties"></div>
+    </section>
+    <section>
+      <h2>Championship</h2>
+      <div id="cupinfo" class="empty"></div>
+      <div class="row">
+        <input id="cupname" maxlength="40" placeholder="Championship name" size="24">
+        <label for="cuphours">lasts (hours)</label>
+        <input id="cuphours" type="number" min="1" max="336" value="48" style="width:80px">
+        <button id="cupnew" class="go">Start a new championship</button>
+        <button id="cupend" class="danger">End it now</button>
+        <button id="cupdel" class="small">Delete</button>
+      </div>
+      <div class="scroll"><table><thead><tr><th>#</th><th>Player</th><th>Points</th><th>Games</th><th>Wins</th><th>Kills</th><th></th></tr></thead><tbody id="cuprows"></tbody></table></div>
     </section>
     <section>
       <h2>Accounts</h2>
@@ -118,8 +132,18 @@ const EVENTS = [
   {k: "meteor", t: "Meteor shower", d: "Explosions land near random fighters. Dangerous!", f: ["n"], n: 8, b: "Launch", danger: 1},
   {k: "smite", t: "Smite a player", d: "A huge blast right on the player typed above.", f: [], b: "Smite", danger: 1, who: 1},
   {k: "storm", t: "Storm surge", d: "Battle Royale only: the storm jumps 30 seconds closer.", f: [], b: "Surge", danger: 1},
+  {k: "shield", t: "Full shields", d: "Shield back to full.", f: [], b: "Shield"},
+  {k: "ammo", t: "Ammo refill", d: "+150 ammo and full magazines.", f: [], b: "Refill"},
+  {k: "loot", t: "Epic loot", d: "A random epic or legendary weapon.", f: [], b: "Give loot"},
+  {k: "speed", t: "Speed boost", d: "Run faster for a while (number = longer).", f: ["n"], n: 3, b: "Boost"},
+  {k: "god", t: "Invincible", d: "Can't be hurt for a while (number = longer).", f: ["n"], n: 3, b: "Protect"},
+  {k: "freeze", t: "Freeze", d: "Can't move for that many seconds (max 10).", f: ["n"], n: 5, b: "Freeze", danger: 1},
+  {k: "tp", t: "Teleport", d: "To a random safe spot on the map.", f: [], b: "Teleport"},
+  {k: "revive", t: "Revive", d: "Brings dead players back into the match.", f: [], b: "Revive"},
+  {k: "nuke", t: "Remove all bots", d: "Every bot in the match is taken out.", f: [], b: "Remove bots", danger: 1},
+  {k: "end", t: "End the match", d: "Stops the match now (the last team standing wins, else a draw).", f: [], b: "End match", danger: 1},
 ];
-let tok = "", state = null, timer = 0;
+let tok = "", state = null, timer = 0, lastSig = "";
 try { tok = sessionStorage.getItem("mr_admin") || ""; } catch (e) {}
 
 function el(tag, text, cls) {
@@ -190,8 +214,12 @@ function drawEvents() {
   }
 }
 
-function draw() {
+function draw(force) {
   const s = state, now = Date.now() / 1000;
+  // only rebuild the tables when something really changed: rebuilding every 5 s closed menus and moved buttons under the mouse
+  const sig = JSON.stringify(s, (k, v) => (k === "up" || k === "age" || k === "mb" || k === "seen" || k === "left") ? undefined : v);
+  const changed = force || sig !== lastSig;
+  lastSig = sig;
   const st = $("stats");
   st.replaceChildren();
   const stat = (label, val, cls) => { const d = el("span", label + " "); d.append(el("b", String(val), cls)); st.append(d); };
@@ -204,12 +232,16 @@ function draw() {
   if (!s.db) stat("Accounts are", "NOT saved (no database set up)", "warn");
   else if (!s.loaded) stat("Database", "loading...", "warn");
   else stat("Database", s.pending ? "saving..." : "saved", s.pending ? "warn" : "good");
+  if (s.parties) stat("Parties", s.parties.length);
+  if (!changed) return;
 
   const sel = $("room"), keep = sel.value;
-  sel.replaceChildren(el("option", "All rooms"));
-  sel.firstChild.value = "*";
-  for (const r of s.rooms) { const o = el("option", r.c + "  (" + r.host + ")"); o.value = r.c; sel.append(o); }
-  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "*";
+  if (document.activeElement !== sel) {              // never rebuild the list while it is open
+    sel.replaceChildren(el("option", "All rooms"));
+    sel.firstChild.value = "*";
+    for (const r of s.rooms) { const o = el("option", r.c + "  (" + r.host + ")"); o.value = r.c; sel.append(o); }
+    sel.value = [...sel.options].some(o => o.value === keep) ? keep : "*";
+  }
 
   const tb = $("rooms");
   tb.replaceChildren();
@@ -217,12 +249,28 @@ function draw() {
   for (const r of s.rooms) {
     const tr = el("tr"), acts = el("td", undefined, "acts"), b = el("button", "Close room", "small danger");
     b.onclick = () => act({a: "close", room: r.c}, "Close room " + r.c + " and disconnect everyone in it?");
-    acts.append(b);
-    tr.append(el("td", r.c, "code"), el("td", r.host), el("td", r.players.join(", ") || "-"),
+    const t = el("button", "Target", "small");
+    t.onclick = () => { $("room").value = r.c; toast("Events now go to room " + r.c); };
+    acts.append(t, b);
+    tr.append(el("td", r.c, "code"), el("td", r.pub ? "quick play" : "room code"), el("td", r.host), el("td", r.players.join(", ") || "-"),
               el("td", {lobby: "in the lobby", play: "playing", over: "results"}[r.s] || r.s), el("td", r.m || "-"),
               el("td", ago(r.age), "num"), el("td", r.mb + " MB", "num"), acts);
     tb.append(tr);
   }
+  const ps = s.parties || [];
+  $("parties").textContent = ps.length ? "Parties: " + ps.map(p => p.c + " (" + p.mem.join(", ") + ")").join("   ") : "";
+
+  const cup = s.cup || {}, cb = $("cuprows");
+  cb.replaceChildren();
+  if (!cup.name) $("cupinfo").textContent = "No championship. Start one below: players join it in the game (CHAMPIONSHIP), and online matches give points (win +10, kill +2, match +1).";
+  else $("cupinfo").textContent = cup.name + " - " + (cup.on ? "running, " + ago(cup.left) + " left" : "finished" + (cup.win ? ", champion: " + cup.win : "")) + " - " + cup.n + " players";
+  (cup.top || []).forEach((r, i) => {
+    const tr = el("tr"), acts = el("td", undefined, "acts"), b = el("button", "Remove", "small danger");
+    b.onclick = () => act({a: "cup_kick", u: r[0]}, "Remove " + r[0] + " from the championship?");
+    acts.append(b);
+    tr.append(el("td", i + 1, "num"), el("td", r[0]), el("td", r[1], "num"), el("td", r[2], "num"), el("td", r[3], "num"), el("td", r[4], "num"), acts);
+    cb.append(tr);
+  });
 
   const q = $("find").value.trim().toLowerCase(), ab = $("accs");
   const list = s.acc.filter(a => a.u.toLowerCase().includes(q)).sort((a, b) => (b.on ? 1 : 0) - (a.on ? 1 : 0) || b.seen - a.seen).slice(0, 200);
@@ -278,7 +326,15 @@ $("login").onsubmit = async e => {
   } catch (err) { $("lerr").textContent = err.message; }
 };
 $("out").onclick = () => show(false);
-$("find").oninput = () => { if (state) draw(); };
+$("find").oninput = () => { if (state) draw(true); };
+$("cupnew").onclick = () => {
+  const name = $("cupname").value.trim();
+  if (!name) return toast("Type a name for the championship first");
+  act({a: "cup_new", name: name, hours: Number($("cuphours").value) || 48},
+      "Start '" + name + "'? A running championship is replaced and its points are lost.");
+};
+$("cupend").onclick = () => act({a: "cup_end"}, "End the championship now? The player with the most points wins.");
+$("cupdel").onclick = () => act({a: "cup_clear"}, "Delete the championship and all its points?");
 $("ownpw").onclick = () => {      // nobody can register the owner name in the game: it is set up here
   const v = prompt("Password for the owner account JawharSas (8-64 characters, not easy to guess):");
   if (v) act({a: "pw", u: "JawharSas", p: v});

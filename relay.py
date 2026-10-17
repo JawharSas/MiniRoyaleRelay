@@ -55,8 +55,10 @@ GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 ALPHA = "BCDFGHJKLMNPQRSTVWXZ"  # no vowels: no accidental words, no 0/O or 1/I mix-ups
 MAX_FRAME = 8_000_000
 MAX_ROOMS = 300
-MAX_PLAYERS = 8                 # pipes per room (host's own game is not a pipe)
-ROOM_BYTES = 600_000_000        # per room, keeps a runaway room from eating the free bandwidth
+MAX_PLAYERS = 15                # pipes per room (host's own game is not a pipe): 16 humans per match
+PARTY_MAX = 3                   # friends per party (one squad)
+QUICK_MODES = {"br", "squad"}   # quick play queues
+ROOM_BYTES = 3_000_000_000      # per room, keeps a runaway room from eating the free bandwidth
 PAIR_WAIT = 12                  # seconds the host has to answer a joiner
 MAX_ACCOUNTS = 3000
 TOKEN_DAYS = 90                 # a saved login lasts this long
@@ -64,11 +66,13 @@ PW_ROUNDS = 300_000             # PBKDF2 rounds for the password hash (each acco
 WEAK = {"password", "password1", "12345678", "123456789", "1234567890", "11111111", "00000000", "qwertyui", "qwerty123",
         "iloveyou", "abcdefgh", "abcd1234", "minecraft", "roblox123", "miniroyale", "letmein123", "football", "princess"}
 RESERVED = {"you", "announcer", "gemma", "host", "player", "admin", "server"}    # same list as the game
-EVENTS = {"say", "drops", "gift", "heal", "meteor", "smite", "xp", "storm"}      # admin events the game understands
+EVENTS = {"say", "drops", "gift", "heal", "meteor", "smite", "xp", "storm",      # admin events the game understands
+          "shield", "ammo", "speed", "freeze", "revive", "nuke", "end", "tp", "god", "loot"}
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_PATH = "/" + os.environ.get("ADMIN_PATH", "admin").strip("/")    # secret address of the admin page
-OWNER = os.environ.get("OWNER", "JawharSas").lower()                    # this account gets the in-game owner panel
-OWNER_ACTS = {"state", "event", "close", "kick", "ban", "unban", "del"}
+OWNER_NAME = os.environ.get("OWNER", "JawharSas")                       # this account gets the in-game owner panel
+OWNER = OWNER_NAME.lower()
+OWNER_ACTS = {"state", "event", "close", "kick", "ban", "unban", "del", "cup_new", "cup_end", "cup_kick", "cup_clear"}
 DB_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 DB_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 REDIS_URL = os.environ.get("REDIS_URL", "")
@@ -166,15 +170,28 @@ class Join:
 
 
 class Room:
-    def __init__(s, host, user):
+    def __init__(s, host, user, pub=False, mode=""):
         s.host, s.joins, s.nid, s.bytes, s.t0 = host, {}, 0, 0, time.time()
         s.user, s.members, s.info, s.res_t = user, {user.lower()}, {}, 0.0
+        s.pub, s.mode = pub, mode                      # public quick-play room (anyone can be matched into it)
 
     def live(s):
         return sum(1 for j in s.joins.values() if not j.done)
 
+    def open_for(s, n):
+        """Room in the lobby with space for n more players."""
+        return s.info.get("s", "lobby") in ("lobby", "?") and s.live() + 1 + n <= MAX_PLAYERS + 1
+
+
+class Party:
+    def __init__(s, code, leader):
+        s.code, s.leader, s.mem, s.go_t, s.go_mode = code, leader, {}, 0.0, ""     # mem: account name -> Peer
+
 
 rooms = {}
+parties = {}                    # party code -> Party
+in_party = {}                   # lower-case account name -> party code
+quick_hold = {}                 # mode -> time a player was told to open a new public room (others wait a moment)
 
 
 # ------------------------------ accounts ------------------------------
@@ -259,6 +276,7 @@ class Store:
         s.acc, s.dirty, s.db = {}, set(), bool(REDIS_URL or (DB_URL.startswith("https://") and DB_TOKEN))
         s.enc, s.skipped = len(DATA_KEY) >= 32, 0
         s.loaded, s.secret = not s.db, subkey(b"tok").hex() if s.enc else secrets.token_hex(32)
+        s.cup, s.cup_dirty = None, False             # the championship (one at a time), saved under the key mr:cup
 
     async def call(s, *cmd):
         return await asyncio.get_running_loop().run_in_executor(None, db_call, *cmd)
@@ -277,6 +295,12 @@ class Store:
                         acc[flat[i]] = json.loads(unseal(flat[i], flat[i + 1]) if s.enc else flat[i + 1])
                     except ValueError:
                         s.skipped += 1                   # changed by somebody else, or not written with our key: not trusted
+                raw = await s.call("GET", "mr:cup")
+                if raw:
+                    try:
+                        s.cup = json.loads(unseal("#cup", raw) if s.enc else raw)    # "#" is never in a username
+                    except ValueError:
+                        s.skipped += 1
                 s.acc, s.loaded = acc, True
                 if s.skipped:
                     print("ignored", s.skipped, "database records that failed the seal check", flush=True)
@@ -285,6 +309,16 @@ class Store:
                 await asyncio.sleep(5)
         while s.db:
             await asyncio.sleep(1)
+            if s.cup_dirty:
+                s.cup_dirty = False
+                try:
+                    if s.cup is None:
+                        await s.call("DEL", "mr:cup")
+                    else:
+                        text = json.dumps(s.cup, separators=(",", ":"))
+                        await s.call("SET", "mr:cup", seal("#cup", text) if s.enc else text)
+                except Exception:
+                    s.cup_dirty = True
             for k in list(s.dirty):
                 s.dirty.discard(k)
                 try:
@@ -358,6 +392,23 @@ def check_token(tok):
         return None
 
 
+def token_banned(tok):
+    """True when the token names an account that is banned (so the game can switch to solo-only)."""
+    a = store.acc.get(str(tok).split(".")[0].lower())
+    return bool(a and a.get("ban"))
+
+
+def note_ip(a, ip):
+    """Remember the last few addresses of an account, so a ban also covers the network it plays from."""
+    if ip != "?" and ip not in a.get("ips", [])[:1]:
+        a["ips"] = ([ip] + [x for x in a.get("ips", []) if x != ip])[:3]
+        store.put(a["n"].lower())
+
+
+def ip_banned(ip):
+    return ip != "?" and any(a.get("ban") and ip in a.get("ips", ()) for a in store.acc.values())
+
+
 async def do_auth(peer, first, ip):
     t, u, p = first.get("t"), first.get("u"), first.get("p")
     err = None
@@ -378,6 +429,9 @@ async def do_auth(peer, first, ip):
         return
     k, loop = u.lower(), asyncio.get_running_loop()
     a = store.acc.get(k)
+    if k != OWNER and ip_banned(ip):                 # a banned player's network: no new accounts, no logins
+        await peer.send_json({"t": "err", "m": "This network is banned from online play", "ban": 1})
+        return
     if t == "reg":
         if a is not None or k == OWNER:              # the owner name can only be set up from the admin page
             err = "That username is taken"
@@ -397,13 +451,14 @@ async def do_auth(peer, first, ip):
         if a is None or not hmac.compare_digest(h, a["h"]):
             err = "Wrong username or password"
         elif a.get("ban"):
-            err = "This account is banned"
+            err = "This account is banned from online play"
         else:
             hits.pop(("try", k), None)
     if err:
-        await peer.send_json({"t": "err", "m": err})
+        await peer.send_json({"t": "err", "m": err, "ban": int(bool(a and a.get("ban") and "banned" in err))})
         return
     a["seen"] = int(time.time())
+    note_ip(a, ip)
     store.put(k)
     await peer.send_json({"t": "auth", "u": a["n"], "tok": make_token(a), "own": int(k == OWNER)})
 
@@ -425,6 +480,165 @@ def add_results(room, rows):
         a["g"], a["w"], a["k"], a["bk"] = a["g"] + 1, a["w"] + int(win), a["k"] + kills, max(a["bk"], kills)
         a["seen"] = int(now)
         store.put(k)
+        cup = store.cup
+        if cup and cup.get("on") and cup["t0"] <= now < cup["t1"] and k in cup["pts"]:
+            p = cup["pts"][k]                             # [points, games, wins, kills]
+            p[0] += CUP_WIN * int(win) + CUP_KILL * kills + CUP_PLAY
+            p[1], p[2], p[3] = p[1] + 1, p[2] + int(win), p[3] + kills
+            store.cup_dirty = True
+
+
+# ------------------------------ championship ------------------------------
+CUP_WIN, CUP_KILL, CUP_PLAY = 10, 2, 1          # points for a win, a kill, and for playing a match
+
+
+def cup_view(k=""):
+    """What the game and the admin page show about the championship (k = the asking player)."""
+    c, now = store.cup, time.time()
+    if not c:
+        return {"on": 0}
+    rows = sorted(([store.acc[n]["n"] if n in store.acc else n] + p for n, p in c["pts"].items()), key=lambda r: (-r[1], -r[3], -r[4]))
+    return {"on": int(c["on"] and now < c["t1"]), "name": c["name"], "left": max(0, int(c["t1"] - now)), "t0": c["t0"], "t1": c["t1"],
+            "n": len(rows), "top": rows[:20], "in": int(k in c["pts"]), "me": c["pts"].get(k), "win": c.get("win", "")}
+
+
+def cup_do(m):
+    a, c = m.get("a"), store.cup
+    if a == "cup_new":
+        name = "".join(ch for ch in str(m.get("name", "")) if ch.isprintable())[:40].strip() or "Championship"
+        try:
+            hours = max(1, min(336, int(m.get("hours", 24))))
+        except (TypeError, ValueError):
+            hours = 24
+        now = int(time.time())
+        store.cup = {"name": name, "t0": now, "t1": now + hours * 3600, "on": True, "pts": {}}
+        store.cup_dirty = True
+        return "Championship '%s' started for %d hours" % (name, hours)
+    if not c:
+        return "No championship"
+    if a == "cup_end":
+        view = cup_view()
+        c["on"], c["t1"] = False, min(c["t1"], int(time.time()))
+        c["win"] = view["top"][0][0] if view["top"] else ""
+        store.cup_dirty = True
+        return "Championship ended" + (" - winner: " + c["win"] if c["win"] else "")
+    if a == "cup_kick":
+        if c["pts"].pop(str(m.get("u", "")).lower(), None) is None:
+            return "That player is not in the championship"
+        store.cup_dirty = True
+        return "Removed from the championship"
+    if a == "cup_clear":
+        store.cup, store.cup_dirty = None, True
+        return "Championship deleted"
+    return "Unknown action"
+
+
+async def do_cup(peer, first, acc):
+    """A player looks at the championship or signs up for it."""
+    k, c = acc["n"].lower(), store.cup
+    if first.get("a") == "join" and c and c["on"] and time.time() < c["t1"] and k not in c["pts"]:
+        c["pts"][k] = [0, 0, 0, 0]
+        store.cup_dirty = True
+    await peer.send_json(dict(cup_view(k), t="cupst"))
+
+
+# ------------------------------ quick play and parties ------------------------------
+def find_room(mode, n):
+    """Fullest public room of that mode still in its lobby with space for n players."""
+    cands = [(c, r) for c, r in rooms.items() if r.pub and r.mode == mode and r.open_for(n)]
+    return max(cands, key=lambda cr: cr[1].live())[0] if cands else None
+
+
+async def do_quick(peer, first, acc):
+    mode = first.get("m") if first.get("m") in QUICK_MODES else "br"
+    code = find_room(mode, 1)
+    if code:
+        await peer.send_json({"t": "qroom", "c": code})
+    elif time.time() - quick_hold.get(mode, 0) < 8:          # somebody is opening a room right now: try again in a moment
+        await peer.send_json({"t": "qwait"})
+    else:
+        quick_hold[mode] = time.time()
+        await peer.send_json({"t": "qhost", "m": mode})
+
+
+async def party_send(p):
+    msg = {"t": "pst", "c": p.code, "lead": store.acc[p.leader]["n"] if p.leader in store.acc else p.leader,
+           "mem": [store.acc[k]["n"] if k in store.acc else k for k in p.mem]}
+    for pe in list(p.mem.values()):
+        try:
+            await pe.send_json(msg)
+        except Exception:
+            pass
+
+
+async def do_party(peer, first, acc):
+    """The game keeps this socket open while its player is in a party."""
+    k = acc["n"].lower()
+    old = parties.get(in_party.get(k, ""))
+    if old is not None and k in old.mem:                    # one party at a time: an older link is replaced
+        await old.mem[k].close()
+    if first.get("a") == "make":
+        code = next(c for c in ("".join(random.choice(ALPHA) for _ in range(4)) for _ in range(100)) if c not in parties)
+        p = parties[code] = Party(code, k)
+    else:
+        p = parties.get(str(first.get("c", "")).upper())
+        if p is None:
+            await peer.send_json({"t": "err", "m": "No party with that code"})
+            return
+        if len(p.mem) >= PARTY_MAX and k not in p.mem:
+            await peer.send_json({"t": "err", "m": "That party is full"})
+            return
+    p.mem[k], in_party[k] = peer, p.code
+    await party_send(p)
+    try:
+        while True:
+            _op, data = await peer.recv()
+            m = json.loads(data) if len(data) <= 2000 else {}
+            if m.get("t") == "pleave":
+                break
+            if m.get("t") == "pgo" and k == p.leader:          # the leader starts quick play for the whole party
+                mode = m.get("m") if m.get("m") in QUICK_MODES else "squad"
+                code = find_room(mode, len(p.mem))
+                if code:
+                    for pe in list(p.mem.values()):
+                        try:
+                            await pe.send_json({"t": "pjoin", "c": code})
+                        except Exception:
+                            pass                           # that friend's link just closed
+                else:
+                    p.go_t, p.go_mode = time.time(), mode
+                    await peer.send_json({"t": "phost", "m": mode})
+            elif m.get("t") == "pkick" and k == p.leader:
+                gone = p.mem.get(str(m.get("u", "")).lower())
+                if gone is not None and gone is not peer:
+                    await gone.close()
+    except Exception:
+        pass
+    finally:
+        if p.mem.get(k) is peer:
+            del p.mem[k]
+            if in_party.get(k) == p.code:
+                in_party.pop(k, None)
+        if not p.mem:
+            parties.pop(p.code, None)
+        else:
+            if p.leader not in p.mem:
+                p.leader = next(iter(p.mem))
+            await party_send(p)
+
+
+async def party_room_open(user, code):
+    """A party leader just opened the room it asked for: bring the rest of the party."""
+    p = parties.get(in_party.get(user.lower(), ""))
+    if p is None or p.leader != user.lower() or time.time() - p.go_t > 60:
+        return
+    p.go_t = 0.0
+    for k, pe in list(p.mem.items()):
+        if k != p.leader:
+            try:
+                await pe.send_json({"t": "pjoin", "c": code})
+            except Exception:
+                pass
 
 
 # ------------------------------ rooms ------------------------------
@@ -452,11 +666,16 @@ async def pipe(src, dst, room, j):
     await dst.close()
 
 
-async def do_host(peer, a):
+async def do_host(peer, a, first):
     code = new_code()
-    room = rooms[code] = Room(peer, a["n"])
+    mode = first.get("m") if first.get("m") in QUICK_MODES else ""
+    room = rooms[code] = Room(peer, a["n"], bool(first.get("pub")) and bool(mode), mode)
+    room.info = {"s": "lobby", "m": mode, "n": 1}
+    if room.pub:
+        quick_hold.pop(mode, None)                   # the new public room is open: quick play can use it at once
     try:
         await peer.send_json({"t": "code", "c": code, "u": a["n"]})
+        await party_room_open(a["n"], code)
         while True:
             _op, data = await peer.recv()          # besides keep-alive pings: room info and match results
             try:
@@ -494,7 +713,7 @@ async def do_join(peer, first, a):
     j = room.joins[jid] = Join(peer, a["n"])
     room.members.add(me)
     try:
-        await room.host.send_json({"t": "newc", "id": jid, "u": a["n"]})
+        await room.host.send_json({"t": "newc", "id": jid, "u": a["n"], "pt": in_party.get(me, "")})
         try:
             await asyncio.wait_for(j.ev.wait(), PAIR_WAIT)
         except asyncio.TimeoutError:
@@ -553,8 +772,10 @@ def admin_state():
             online[n.lower()] = code
     return {"up": int(time.time() - T0), "db": store.db, "enc": store.enc, "skipped": store.skipped, "loaded": store.loaded, "pending": len(store.dirty), "log": adminlog[::-1],
             "rooms": [{"c": c, "host": r.user, "players": [j.user for j in r.joins.values() if not j.done],
-                       "s": r.info.get("s", "?"), "m": r.info.get("m", ""), "n": r.info.get("n", 0),
+                       "s": r.info.get("s", "?"), "m": r.info.get("m", ""), "n": r.info.get("n", 0), "pub": int(r.pub),
                        "age": int(time.time() - r.t0), "mb": round(r.bytes / 1e6, 1)} for c, r in rooms.items()],
+            "parties": [{"c": p.code, "lead": p.leader, "mem": list(p.mem)} for p in parties.values()],
+            "cup": cup_view(), "events": sorted(EVENTS),
             "acc": [{"u": a["n"], "c": a["c"], "seen": a["seen"], "g": a["g"], "w": a["w"], "k": a["k"], "bk": a["bk"],
                      "ban": int(bool(a.get("ban"))), "on": online.get(k, "")} for k, a in store.acc.items()]}
 
@@ -569,10 +790,17 @@ async def drop_player(k):
                 await j.peer.close()
                 if j.mate is not None:
                     await j.mate.close()
+    p = parties.get(in_party.get(k, ""))
+    if p is not None and k in p.mem:
+        await p.mem[k].close()
 
 
 async def admin_do(m):
     a = m.get("a")
+    if a and a.startswith("cup_"):
+        msg = cup_do(m)
+        note(msg)
+        return msg
     if a == "event":
         k, code = m.get("k"), str(m.get("room", "*")).upper()
         if k not in EVENTS:
@@ -582,7 +810,7 @@ async def admin_do(m):
         except (TypeError, ValueError):
             n = 1
         ev = {"t": "adm", "k": k, "text": "".join(c for c in str(m.get("text", "")) if c.isprintable())[:70],
-              "who": str(m.get("who", ""))[:12], "w": str(m.get("w", ""))[:24], "n": n}
+              "who": str(m.get("who", ""))[:12], "w": str(m.get("w", ""))[:24], "n": n, "by": OWNER_NAME}
         sent = 0
         for c, r in list(rooms.items()):
             if code in ("*", c):
@@ -606,7 +834,7 @@ async def admin_do(m):
     if acc is None and a == "pw" and k == OWNER:      # first setup of the owner account (nobody can register that name)
         if len(store.acc) >= MAX_ACCOUNTS:
             return "Too many accounts"
-        acc = store.acc[k] = {"n": os.environ.get("OWNER", "JawharSas"), "s": "", "h": "", "r": PW_ROUNDS, "tv": "",
+        acc = store.acc[k] = {"n": OWNER_NAME, "s": "", "h": "", "r": PW_ROUNDS, "tv": "",
                               "c": int(time.time()), "seen": int(time.time()), "g": 0, "w": 0, "k": 0, "bk": 0, "ban": 0}
     if acc is None:
         return "No such account"
@@ -641,7 +869,7 @@ def owner_state():
     st = admin_state()
     acc = sorted(st["acc"], key=lambda a: -a["seen"])[:150]
     return {"rooms": st["rooms"][:40], "acc": [[a["u"], a["ban"], a["on"], a["g"], a["w"], a["k"]] for a in acc],
-            "n": len(st["acc"]), "log": st["log"][:8]}
+            "n": len(st["acc"]), "log": st["log"][:8], "cup": st["cup"], "parties": len(parties)}
 
 
 async def do_owner(peer, first, ip):
@@ -733,22 +961,39 @@ async def handle(reader, writer):
         _op, data = await asyncio.wait_for(peer.recv(), 15)
         first = json.loads(data)
         t = first.get("t")
-        acct = check_token(first.get("tok")) if t in ("rhost", "rjoin") else None
-        if t in ("rhost", "rjoin", "reg", "login", "own") and first.get("v") != PROTO:
+        online = ("rhost", "rjoin", "rquick", "party", "cup")       # everything that needs a logged-in, not banned account
+        acct = check_token(first.get("tok")) if t in online else None
+        if acct is not None and acct["n"].lower() != OWNER and ip_banned(ip):
+            acct = None
+        if t in online + ("reg", "login", "own") and first.get("v") != PROTO:
             await peer.send_json({"t": "err", "m": "Your game is out of date - get the newest version"})
         elif t in ("reg", "login"):
             await do_auth(peer, first, ip)
         elif t == "own":
             await do_owner(peer, first, ip)
-        elif t in ("rhost", "rjoin") and acct is None:
-            await peer.send_json({"t": "err", "m": "Log in to your account to play online", "auth": 1})
+        elif t in online and acct is None:
+            if token_banned(first.get("tok")) or (ip_banned(ip) and check_token(first.get("tok")) is not None):
+                await peer.send_json({"t": "err", "m": "You are banned from online play - solo games only", "auth": 1, "ban": 1})
+            else:
+                await peer.send_json({"t": "err", "m": "Log in to your account to play online", "auth": 1})
+        elif t in online and limited(("on", ip), 40, 60):
+            await peer.send_json({"t": "err", "m": "Too many tries - wait a minute"})
         elif t == "rhost":
+            note_ip(acct, ip)
             if len(rooms) >= MAX_ROOMS:
                 await peer.send_json({"t": "err", "m": "The server is busy, try again in a minute"})
             else:
-                await do_host(peer, acct)
+                await do_host(peer, acct, first)
         elif t == "rjoin":
+            note_ip(acct, ip)
             await do_join(peer, first, acct)
+        elif t == "rquick":
+            await do_quick(peer, first, acct)
+        elif t == "party":
+            note_ip(acct, ip)
+            await do_party(peer, first, acct)
+        elif t == "cup":
+            await do_cup(peer, first, acct)
         elif t == "rattach":
             await do_attach(peer, first)
     except Exception:

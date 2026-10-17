@@ -24,6 +24,9 @@ On its own socket the host also sends {"t":"info",...} (what the room is doing) 
 Settings (environment variables on the web host, never in this file):
   ADMIN_PASSWORD            password of the admin page (10+ characters; the page is off without it)
   ADMIN_PATH                secret address of the admin page (default "admin" = /admin). Every other address only says "ok".
+  Encryption_Key            the owner key (20+ letters/digits). Every owner-panel command must be signed with it
+                            (HMAC-SHA256 with a time and a one-time number, so it cannot be copied or replayed) and
+                            the admin page asks for it. Without it the owner panel is locked. Never put it in a file.
   OWNER                     account with the in-game owner panel (default JawharSas). Nobody can register that name;
                             it is set up with "Set up / reset the owner account" on the admin page.
   REDIS_URL                 Redis database that keeps the accounts (redis://user:password@host:port, e.g. Redis Cloud)
@@ -72,6 +75,10 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_PATH = "/" + os.environ.get("ADMIN_PATH", "admin").strip("/")    # secret address of the admin page
 OWNER_NAME = os.environ.get("OWNER", "JawharSas")                       # this account gets the in-game owner panel
 OWNER = OWNER_NAME.lower()
+OWNER_KEY = "".join(ch for ch in os.environ.get("Encryption_Key", "").upper() if ch.isascii() and ch.isalnum())
+# ^ the owner's secret key: every owner command must be signed with it, and the admin page needs it too.
+#   Without it (20+ letters/digits) the owner panel is locked. It is never sent over the network, only used to sign.
+OKEY_WINDOW = 90                # seconds an owner command stays valid (and its one-time number is remembered)
 OWNER_ACTS = {"state", "event", "close", "kick", "ban", "unban", "del", "cup_new", "cup_end", "cup_kick", "cup_clear"}
 DB_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 DB_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
@@ -481,15 +488,33 @@ def add_results(room, rows):
         a["seen"] = int(now)
         store.put(k)
         cup = store.cup
-        if cup and cup.get("on") and cup["t0"] <= now < cup["t1"] and k in cup["pts"]:
+        # anti-cheat for championship points: public quick-play rooms only, with at least one other human player,
+        # at most one counted match per player every CUP_GAP seconds, and a kill cap
+        if (cup and cup.get("on") and cup["t0"] <= now < cup["t1"] and k in cup["pts"] and room.pub and room.live() >= 1
+                and now - cup_last.get(k, 0) >= CUP_GAP):
+            cup_last[k] = now
+            kills = min(kills, CUP_MAX_KILLS)
             p = cup["pts"][k]                             # [points, games, wins, kills]
             p[0] += CUP_WIN * int(win) + CUP_KILL * kills + CUP_PLAY
             p[1], p[2], p[3] = p[1] + 1, p[2] + int(win), p[3] + kills
             store.cup_dirty = True
 
 
+def add_flag(room, code, m):
+    """Anti-cheat report from a room's host about one of its players: counted on the account and shown to the owner."""
+    k, why = str(m.get("u", "")).lower(), "".join(c for c in str(m.get("why", "")) if c.isprintable())[:60]
+    a = store.acc.get(k)
+    if a is None or k not in room.members or limited(("flag", code), 10, 600):
+        return
+    a["fl"] = a.get("fl", 0) + 1
+    store.put(k)
+    note("ANTI-CHEAT: %s flagged in room %s (%s), reported by host %s" % (a["n"], code, why, room.user))
+
+
 # ------------------------------ championship ------------------------------
 CUP_WIN, CUP_KILL, CUP_PLAY = 10, 2, 1          # points for a win, a kill, and for playing a match
+CUP_GAP, CUP_MAX_KILLS = 120, 25                 # a counted match at most every 2 minutes per player; kills per match capped
+cup_last = {}                                    # account -> time its last championship match was counted
 
 
 def cup_view(k=""):
@@ -684,6 +709,8 @@ async def do_host(peer, a, first):
                     room.info = {"s": str(m.get("s", ""))[:8], "m": str(m.get("m", ""))[:8], "n": max(0, min(99, int(m.get("n", 0))))}
                 elif m.get("t") == "res":
                     add_results(room, m.get("r"))
+                elif m.get("t") == "flag":
+                    add_flag(room, code, m)
             except (ValueError, TypeError, AttributeError):
                 pass                               # a broken message is ignored, the room stays open
     except Exception:
@@ -777,7 +804,8 @@ def admin_state():
             "parties": [{"c": p.code, "lead": p.leader, "mem": list(p.mem)} for p in parties.values()],
             "cup": cup_view(), "events": sorted(EVENTS),
             "acc": [{"u": a["n"], "c": a["c"], "seen": a["seen"], "g": a["g"], "w": a["w"], "k": a["k"], "bk": a["bk"],
-                     "ban": int(bool(a.get("ban"))), "on": online.get(k, "")} for k, a in store.acc.items()]}
+                     "ban": int(bool(a.get("ban"))), "on": online.get(k, ""), "fl": a.get("fl", 0)} for k, a in store.acc.items()],
+            "okey": int(len(OWNER_KEY) >= 20)}
 
 
 async def drop_player(k):
@@ -868,18 +896,60 @@ def owner_state():
     """What the in-game owner panel shows: open rooms, who is online, and the accounts (most recently seen first)."""
     st = admin_state()
     acc = sorted(st["acc"], key=lambda a: -a["seen"])[:150]
-    return {"rooms": st["rooms"][:40], "acc": [[a["u"], a["ban"], a["on"], a["g"], a["w"], a["k"]] for a in acc],
+    return {"rooms": st["rooms"][:40], "acc": [[a["u"], a["ban"], a["on"], a["g"], a["w"], a["k"], a["fl"]] for a in acc],
             "n": len(st["acc"]), "log": st["log"][:8], "cup": st["cup"], "parties": len(parties)}
 
 
+seen_nonces = {}                # one-time numbers of recent owner commands (a copied command cannot be sent again)
+
+
+def key_fails(ip, add=False):
+    """Wrong owner keys: 5 per address per 15 min, 20 in total per hour, then the owner panel stays shut for a while."""
+    now = time.time()
+    for k, per in (("okey", ip), 900), (("okey", "*"), 3600):
+        q = hits[k] = [t for t in hits.get(k, []) if now - t < per]
+        if add:
+            q.append(now)
+    return len(hits[("okey", ip)]) >= 5 or len(hits[("okey", "*")]) >= 20
+
+
+def owner_sig_err(first, ip):
+    """None when the command carries a fresh, unused signature made with the owner key; else the reason."""
+    if len(OWNER_KEY) < 20:
+        return "The owner panel is locked: set Encryption_Key (20+ letters/digits) on the server"
+    if key_fails(ip):
+        return "Too many wrong owner keys - the owner panel is shut for a while"
+    ts, nc, sig = first.get("ts"), str(first.get("nc", "")), str(first.get("sig", ""))
+    if not isinstance(ts, int) or abs(time.time() - ts) > OKEY_WINDOW:
+        return "Owner command expired - check that your PC clock is right"
+    now = time.time()
+    for n in [n for n, t in seen_nonces.items() if now - t > OKEY_WINDOW * 2]:
+        del seen_nonces[n]
+    if not (8 <= len(nc) <= 64) or nc in seen_nonces:
+        return "Owner command already used"
+    body = json.dumps({k: v for k, v in first.items() if k not in ("t", "v", "tok", "ts", "nc", "sig")}, sort_keys=True, separators=(",", ":"))
+    want = hmac.new(OWNER_KEY.encode(), ("%d|%s|%s" % (ts, nc, body)).encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, sig):
+        key_fails(ip, True)
+        note("WARNING: wrong owner key used (address %s)" % ip)
+        return "Wrong owner key"
+    seen_nonces[nc] = now
+    return None
+
+
 async def do_owner(peer, first, ip):
-    """In-game owner panel. Only a valid login token of the OWNER account works, so changing the game code gains nothing."""
+    """In-game owner panel: needs the OWNER account's login token AND a signature made with the owner key.
+    Changing the game code gains nothing - both are checked here, on the server."""
     a = check_token(first.get("tok"))
     if limited(("own", ip), 60, 60):
         await peer.send_json({"t": "err", "m": "Too many commands - wait a minute"})
         return
     if a is None or a["n"].lower() != OWNER:
         await peer.send_json({"t": "err", "m": "Not allowed", "auth": int(a is None)})
+        return
+    why = owner_sig_err(first, ip)
+    if why:
+        await peer.send_json({"t": "err", "m": why, "key": 1})
         return
     act, msg = first.get("a"), ""
     if act not in OWNER_ACTS:
@@ -920,7 +990,9 @@ async def do_http(reader, writer, method, path, hdr, ip):
     if method == "POST" and path == "/admin/login":
         if limited(("adm", ip), 5, 600) or limited("adm", 40, 600):         # also a global cap, in case the address is faked
             await reply(writer, "429 Too Many Requests", {"m": "Too many tries - wait 10 minutes"})
-        elif hmac.compare_digest(str(body.get("pw", "")).encode(), ADMIN_PASSWORD.encode()):
+        elif hmac.compare_digest(str(body.get("pw", "")).encode(), ADMIN_PASSWORD.encode()) and (
+                not OWNER_KEY or hmac.compare_digest("".join(ch for ch in str(body.get("key", "")).upper() if ch.isascii() and ch.isalnum()).encode(),
+                                                     OWNER_KEY.encode())):         # with an owner key set, the page needs it too
             hits.pop(("adm", ip), None)
             note("admin logged in")
             await reply(writer, "200 OK", {"tok": admin_token()})

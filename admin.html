@@ -62,6 +62,7 @@
   <h1>MINI ROYALE ADMIN</h1>
   <p>Private page. Type the admin password.</p>
   <input id="pw" type="password" autocomplete="current-password" placeholder="Admin password" required>
+  <input id="okey" type="password" autocomplete="off" placeholder="Owner key (Encryption_Key)">
   <button class="go">Log in</button>
   <p id="lerr" class="bad"></p>
 </form>
@@ -233,6 +234,9 @@ function draw(force) {
   else if (!s.loaded) stat("Database", "loading...", "warn");
   else stat("Database", s.pending ? "saving..." : "saved", s.pending ? "warn" : "good");
   if (s.parties) stat("Parties", s.parties.length);
+  stat("Owner key", s.okey ? "set - owner panel unlocked by key" : "NOT SET - owner panel locked (set Encryption_Key)", s.okey ? "good" : "warn");
+  const flagged = s.acc.filter(a => a.fl).length;
+  if (flagged) stat("Cheat flags", flagged + " account(s)", "bad");
   if (!changed) return;
 
   const sel = $("room"), keep = sel.value;
@@ -294,6 +298,7 @@ function draw(force) {
     btn("Delete", {a: "del", u: a.u}, "Delete the account " + a.u + " for good?", "danger");
     const name = el("td", a.u);
     if (a.ban) name.append(el("span", "  banned", "bad"));
+    if (a.fl) name.append(el("span", "  cheat flags: " + a.fl, "warn"));
     tr.append(name, el("td", a.on || "-", a.on ? "code" : ""), el("td", a.g, "num"), el("td", a.w, "num"), el("td", a.k, "num"),
               el("td", a.bk, "num"), el("td", ago(now - a.c) + " ago", "num"), el("td", ago(now - a.seen) + " ago", "num"), acts);
     ab.append(tr);
@@ -316,12 +321,12 @@ $("login").onsubmit = async e => {
   e.preventDefault();
   $("lerr").textContent = "";
   try {
-    const r = await fetch("/admin/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pw: $("pw").value})});
+    const r = await fetch("/admin/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pw: $("pw").value, key: $("okey").value})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.m || "Could not log in");
     tok = j.tok;
     try { sessionStorage.setItem("mr_admin", tok); } catch (err) {}
-    $("pw").value = "";
+    $("pw").value = $("okey").value = "";
     show(true);
   } catch (err) { $("lerr").textContent = err.message; }
 };

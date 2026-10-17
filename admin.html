@@ -90,7 +90,8 @@
     </section>
     <section>
       <h2>Accounts</h2>
-      <div class="row"><input id="find" placeholder="Search a username" size="22"></div>
+      <div class="row"><input id="find" placeholder="Search a username" size="22">
+        <button id="ownpw" class="small">Set up / reset the owner account</button></div>
       <div class="scroll"><table><thead><tr><th>Username</th><th>In room</th><th>Games</th><th>Wins</th><th>Kills</th><th>Best</th><th>Created</th><th>Last seen</th><th></th></tr></thead><tbody id="accs"></tbody></table></div>
       <div class="empty" id="noaccs">No accounts yet.</div>
     </section>
@@ -278,6 +279,10 @@ $("login").onsubmit = async e => {
 };
 $("out").onclick = () => show(false);
 $("find").oninput = () => { if (state) draw(); };
+$("ownpw").onclick = () => {      // nobody can register the owner name in the game: it is set up here
+  const v = prompt("Password for the owner account JawharSas (8-64 characters, not easy to guess):");
+  if (v) act({a: "pw", u: "JawharSas", p: v});
+};
 drawEvents();
 show(!!tok);
 </script>

@@ -14,6 +14,7 @@ Protocol (first message on a new WebSocket is JSON text):
   {"t":"rjoin","c":"ABCDE","v":N,"tok":T}     a player joins      -> {"t":"ok"} then raw pipe, or {"t":"err","m":...}
   host gets {"t":"newc","id":K,"u":name} for every joiner and answers with a NEW socket:
   {"t":"rattach","c":"ABCDE","id":K}          -> {"t":"ok"} then raw pipe to that joiner
+  {"t":"own","a":action,"tok":T,"v":N,...}   owner panel (OWNER account only) -> {"t":"ores","m":result,"st":rooms+accounts}
 After "ok" every binary frame is forwarded unchanged to the other side.
 An error with "auth":1 means the token is no longer good and the player has to log in again.
 
@@ -21,7 +22,10 @@ On its own socket the host also sends {"t":"info",...} (what the room is doing) 
 (match results for the account stats), and receives {"t":"adm","k":...} admin events started from the admin page.
 
 Settings (environment variables on the web host, never in this file):
-  ADMIN_PASSWORD            password of the admin page at /admin (10+ characters; the page is off without it)
+  ADMIN_PASSWORD            password of the admin page (10+ characters; the page is off without it)
+  ADMIN_PATH                secret address of the admin page (default "admin" = /admin). Every other address only says "ok".
+  OWNER                     account with the in-game owner panel (default JawharSas). Nobody can register that name;
+                            it is set up with "Set up / reset the owner account" on the admin page.
   REDIS_URL                 Redis database that keeps the accounts (redis://user:password@host:port, e.g. Redis Cloud)
   UPSTASH_REDIS_REST_URL    } or instead: a free Upstash Redis database, reached over HTTPS
   UPSTASH_REDIS_REST_TOKEN  }
@@ -62,6 +66,9 @@ WEAK = {"password", "password1", "12345678", "123456789", "1234567890", "1111111
 RESERVED = {"you", "announcer", "gemma", "host", "player", "admin", "server"}    # same list as the game
 EVENTS = {"say", "drops", "gift", "heal", "meteor", "smite", "xp", "storm"}      # admin events the game understands
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+ADMIN_PATH = "/" + os.environ.get("ADMIN_PATH", "admin").strip("/")    # secret address of the admin page
+OWNER = os.environ.get("OWNER", "JawharSas").lower()                    # this account gets the in-game owner panel
+OWNER_ACTS = {"state", "event", "close", "kick", "ban", "unban", "del"}
 DB_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 DB_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 REDIS_URL = os.environ.get("REDIS_URL", "")
@@ -372,7 +379,7 @@ async def do_auth(peer, first, ip):
     k, loop = u.lower(), asyncio.get_running_loop()
     a = store.acc.get(k)
     if t == "reg":
-        if a is not None:
+        if a is not None or k == OWNER:              # the owner name can only be set up from the admin page
             err = "That username is taken"
         elif len(store.acc) >= MAX_ACCOUNTS or limited(("reg", ip), 4, 3600):
             err = "No new accounts right now - try again later"
@@ -398,7 +405,7 @@ async def do_auth(peer, first, ip):
         return
     a["seen"] = int(time.time())
     store.put(k)
-    await peer.send_json({"t": "auth", "u": a["n"], "tok": make_token(a)})
+    await peer.send_json({"t": "auth", "u": a["n"], "tok": make_token(a), "own": int(k == OWNER)})
 
 
 def add_results(room, rows):
@@ -596,8 +603,15 @@ async def admin_do(m):
         return "Room closed"
     k = str(m.get("u", "")).lower()
     acc = store.acc.get(k)
+    if acc is None and a == "pw" and k == OWNER:      # first setup of the owner account (nobody can register that name)
+        if len(store.acc) >= MAX_ACCOUNTS:
+            return "Too many accounts"
+        acc = store.acc[k] = {"n": os.environ.get("OWNER", "JawharSas"), "s": "", "h": "", "r": PW_ROUNDS, "tv": "",
+                              "c": int(time.time()), "seen": int(time.time()), "g": 0, "w": 0, "k": 0, "bk": 0, "ban": 0}
     if acc is None:
         return "No such account"
+    if k == OWNER and a in ("kick", "ban", "del"):
+        return "The owner account can't be kicked, banned or deleted"
     if a == "kick":
         await drop_player(k)
     elif a in ("ban", "unban"):
@@ -609,6 +623,8 @@ async def admin_do(m):
         del store.acc[k]
     elif a == "pw":
         if not good_pw(m.get("p"), acc["n"]):
+            if not acc["h"]:                         # an owner account that was just made but got no password: undo
+                del store.acc[k]
             return PW_RULE
         salt = secrets.token_hex(16)
         acc["h"] = await asyncio.get_running_loop().run_in_executor(None, pw_hash, m["p"], salt, PW_ROUNDS)
@@ -618,6 +634,32 @@ async def admin_do(m):
     store.put(k)
     note("%s %s" % (a, acc["n"]))
     return "Done: %s %s" % (a, acc["n"])
+
+
+def owner_state():
+    """What the in-game owner panel shows: open rooms, who is online, and the accounts (most recently seen first)."""
+    st = admin_state()
+    acc = sorted(st["acc"], key=lambda a: -a["seen"])[:150]
+    return {"rooms": st["rooms"][:40], "acc": [[a["u"], a["ban"], a["on"], a["g"], a["w"], a["k"]] for a in acc],
+            "n": len(st["acc"]), "log": st["log"][:8]}
+
+
+async def do_owner(peer, first, ip):
+    """In-game owner panel. Only a valid login token of the OWNER account works, so changing the game code gains nothing."""
+    a = check_token(first.get("tok"))
+    if limited(("own", ip), 60, 60):
+        await peer.send_json({"t": "err", "m": "Too many commands - wait a minute"})
+        return
+    if a is None or a["n"].lower() != OWNER:
+        await peer.send_json({"t": "err", "m": "Not allowed", "auth": int(a is None)})
+        return
+    act, msg = first.get("a"), ""
+    if act not in OWNER_ACTS:
+        msg = "Unknown action"
+    elif act != "state":
+        msg = await admin_do(first)
+        note("owner: " + msg)
+    await peer.send_json({"t": "ores", "m": msg, "st": owner_state()})
 
 
 async def reply(writer, status, body, ctype="application/json"):
@@ -631,15 +673,13 @@ async def reply(writer, status, body, ctype="application/json"):
 
 async def do_http(reader, writer, method, path, hdr, ip):
     path = path.split("?")[0].rstrip("/") or "/"
-    if not path.startswith("/admin"):
-        await reply(writer, "200 OK", ("Mini Royale relay: ok, %d rooms\n" % len(rooms)).encode(), "text/plain")   # health check / wake-up ping
+    if not admin_on() or not (path == ADMIN_PATH or path.startswith(ADMIN_PATH + "/")):
+        await reply(writer, "200 OK", b"ok\n", "text/plain")     # health check / wake-up ping; says nothing about what runs here
         return
-    if not admin_on():
-        await reply(writer, "404 Not Found", b"The admin page is switched off (no ADMIN_PASSWORD is set on the server).\n", "text/plain")
+    if method == "GET" and path == ADMIN_PATH:
+        await reply(writer, "200 OK", ADMIN_PAGE.replace(b'"/admin/', ('"%s/' % ADMIN_PATH).encode()), "text/html; charset=utf-8")
         return
-    if method == "GET" and path == "/admin":
-        await reply(writer, "200 OK", ADMIN_PAGE, "text/html; charset=utf-8")
-        return
+    path = "/admin" + path[len(ADMIN_PATH):]
     body = {}
     if method == "POST":
         n = int(hdr.get("content-length", "0"))
@@ -694,10 +734,12 @@ async def handle(reader, writer):
         first = json.loads(data)
         t = first.get("t")
         acct = check_token(first.get("tok")) if t in ("rhost", "rjoin") else None
-        if t in ("rhost", "rjoin", "reg", "login") and first.get("v") != PROTO:
+        if t in ("rhost", "rjoin", "reg", "login", "own") and first.get("v") != PROTO:
             await peer.send_json({"t": "err", "m": "Your game is out of date - get the newest version"})
         elif t in ("reg", "login"):
             await do_auth(peer, first, ip)
+        elif t == "own":
+            await do_owner(peer, first, ip)
         elif t in ("rhost", "rjoin") and acct is None:
             await peer.send_json({"t": "err", "m": "Log in to your account to play online", "auth": 1})
         elif t == "rhost":

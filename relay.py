@@ -981,7 +981,7 @@ async def do_join(peer, first, a, ip):
         return
     me = a["n"].lower()
     if me == room.user.lower() or any(j.user.lower() == me and not j.done for j in room.joins.values()):
-        await peer.send_json({"t": "err", "m": "This account is already in that room"})
+        await peer.send_json({"t": "err", "m": "This account is already in that room - every player needs their own account (log in with another one)"})
         return
     jid = secrets.randbelow(2 ** 31 - 1) + 1         # not a counter: nobody can guess the next one
     while jid in room.joins:

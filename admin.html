@@ -7,62 +7,106 @@
 <title>Mini Royale Admin</title>
 <style>
   :root {
-    --bg: #12141c; --panel: #1b1f2b; --line: #2c3244; --ink: #e9ecf5; --dim: #98a1b8;
-    --gold: #ffdc5a; --green: #5fd38a; --red: #ff6b6b; --blue: #6fa8ff; --field: #0e1017;
+    --bg: #0f1118; --panel: #181c27; --panel2: #1f2433; --line: #2b3145; --ink: #e9ecf5; --dim: #9aa3b9; --faint: #6c7590;
+    --gold: #ffd75a; --green: #5fd38a; --red: #ff6b6b; --blue: #6fa8ff; --field: #0c0e14; --btn: #2a3350; --btnh: #36416b;
+    --go: #2f6d48; --goh: #398557; --dan: #6d2f38; --danh: #8a3a45; --shadow: 0 1px 0 rgba(255,255,255,.03) inset;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f3f5fa; --panel: #ffffff; --panel2: #f6f8fc; --line: #dde2ee; --ink: #1b2030; --dim: #5b647c; --faint: #8c94aa;
+            --gold: #a87a00; --green: #1f8a4c; --red: #c93434; --blue: #2f6fd8; --field: #ffffff; --btn: #e7ebf5; --btnh: #d9dff0;
+            --go: #2f8a55; --goh: #27744a; --dan: #c94545; --danh: #a93535; --shadow: none; }
+    button.go, button.danger { color: #fff; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-  h1 { margin: 0; font: 800 20px/1 Consolas, Menlo, monospace; letter-spacing: 1px; color: var(--gold); }
-  h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
-  .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--dim); font-size: 13px; }
-  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .warn { color: var(--gold); }
-  .bad { color: var(--red); }
-  .good { color: var(--green); }
-  input, select, button { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; min-width: 0; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14.5px/1.45 system-ui, "Segoe UI", sans-serif; }
+  h1 { margin: 0; font: 800 19px/1 Consolas, Menlo, monospace; letter-spacing: 1px; color: var(--gold); white-space: nowrap; }
+  h2 { margin: 0 0 12px; font-size: 12.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--dim); }
+  h3 { margin: 0 0 8px; font-size: 13px; color: var(--dim); font-weight: 600; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px; max-width: 1240px; margin: 0 auto; }
+  .live { display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: 12.5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(95,211,138,.18); }
+  .dot.off { background: var(--faint); box-shadow: none; }
+  .dot.err { background: var(--red); box-shadow: 0 0 0 3px rgba(255,107,107,.2); }
+  .push { margin-left: auto; }
+  nav { display: flex; gap: 4px; overflow-x: auto; padding: 0 12px; max-width: 1240px; margin: 0 auto; scrollbar-width: none; }
+  nav a { color: var(--dim); text-decoration: none; padding: 9px 12px 10px; border-bottom: 2px solid transparent; white-space: nowrap; font-weight: 600; font-size: 13.5px; }
+  nav a:hover { color: var(--ink); }
+  nav a.on { color: var(--ink); border-bottom-color: var(--gold); }
+  nav .n { display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--panel2); border: 1px solid var(--line); font-size: 11.5px; text-align: center; color: var(--dim); }
+  nav .n.hot { color: var(--red); border-color: var(--red); }
+  main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+  .tab { display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; box-shadow: var(--shadow); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
+  .card .k { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .card .v { font: 800 26px/1.2 Consolas, Menlo, monospace; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .card .s { color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .health { display: grid; gap: 8px; }
+  .health div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .health div:last-child { border-bottom: 0; }
+  .health span:first-child { color: var(--dim); }
+  .warn { color: var(--gold); } .bad { color: var(--red); } .good { color: var(--green); }
+  input, select, button { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
   input:focus, select:focus, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
-  button { background: #2a3350; cursor: pointer; font-weight: 600; }
-  button:hover { background: #35406a; }
-  button.go { background: #2f6d48; }
-  button.go:hover { background: #398557; }
-  button.danger { background: #6d2f38; }
-  button.danger:hover { background: #8a3a45; }
-  button.small { padding: 3px 8px; font-size: 12.5px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  button { background: var(--btn); cursor: pointer; font-weight: 600; }
+  button:hover { background: var(--btnh); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.go { background: var(--go); } button.go:hover { background: var(--goh); }
+  button.danger { background: var(--dan); } button.danger:hover { background: var(--danh); }
+  button.small { padding: 3px 9px; font-size: 12.5px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   .row label { color: var(--dim); font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 4px 11px; border-radius: 16px; font-size: 12.5px; background: var(--panel2); }
+  .chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
   .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
-  .ev { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
-  .ev strong { font-size: 14.5px; }
+  .ev { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; align-content: start; background: var(--panel2); }
+  .ev.dz { border-color: rgba(255,107,107,.45); }
+  .ev strong { font-size: 14px; }
   .ev p { margin: 0; color: var(--dim); font-size: 12.5px; }
   .ev .in { display: flex; gap: 6px; }
   .ev .in > * { flex: 1; }
-  .ev .in input[type=number] { flex: 0 0 74px; }
+  .ev .in input[type=number] { flex: 0 0 70px; }
+  .target { position: sticky; top: 96px; z-index: 3; background: var(--panel); }
   .scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; user-select: none; }
+  th.sort { cursor: pointer; } th.sort:hover { color: var(--ink); }
+  th.sort.up::after { content: " \25B2"; font-size: 9px; } th.sort.down::after { content: " \25BC"; font-size: 9px; }
+  tbody tr:hover { background: var(--panel2); }
   td.num { font-variant-numeric: tabular-nums; }
   td.acts { display: flex; gap: 5px; }
-  .code { font: 700 15px Consolas, Menlo, monospace; color: var(--green); letter-spacing: 2px; }
-  .empty { color: var(--dim); padding: 8px 0; }
-  #log { margin: 0; padding: 0; list-style: none; color: var(--dim); font-size: 13px; max-height: 180px; overflow-y: auto; }
-  #log time { color: var(--ink); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .code { font: 700 14.5px Consolas, Menlo, monospace; color: var(--green); letter-spacing: 2px; }
+  .tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 8px; font-size: 11px; font-weight: 700; border: 1px solid currentColor; }
+  .empty { color: var(--dim); padding: 10px 0; }
+  .meter { height: 8px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--blue); }
+  .top { display: grid; gap: 6px; }
+  .top div { display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; align-items: center; }
+  .top .meter { grid-column: 2 / 4; }
+  #log { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  #log li { padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--dim); }
+  #log li.sec { color: var(--ink); }
+  #log li.alarm { color: var(--red); }
+  #log time { color: var(--faint); margin-right: 10px; font-variant-numeric: tabular-nums; }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #000; border: 1px solid var(--gold); color: var(--gold);
-           padding: 9px 16px; border-radius: 8px; display: none; max-width: calc(100vw - 32px); }
-  #login { max-width: 340px; margin: 12vh auto 0; display: grid; gap: 10px; padding: 0 16px; }
+           padding: 9px 16px; border-radius: 8px; display: none; max-width: calc(100vw - 32px); z-index: 9; }
+  #login { max-width: 360px; margin: 12vh auto 0; display: grid; gap: 10px; padding: 0 16px; }
   #login p { margin: 0; color: var(--dim); font-size: 13px; }
   [hidden] { display: none !important; }
-  .push { margin-left: auto; }
-  input.hours { width: 80px; }
+  .more { margin-top: 10px; }
+  kbd { font: 12px Consolas, monospace; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--dim); }
+  @media (max-width: 640px) { .bar { padding: 10px 12px; } main { padding: 12px; } .card .v { font-size: 22px; } .target { top: 0; position: static; } }
 </style>
 </head>
 <body>
 <form id="login" hidden>
   <h1>MINI ROYALE ADMIN</h1>
-  <p>Private page. Type the admin password.</p>
+  <p>Private page. Type the admin password and the owner key.</p>
   <input id="pw" type="password" autocomplete="current-password" placeholder="Admin password" required>
   <input id="okey" type="password" autocomplete="off" placeholder="Owner key (Encryption_Key)">
   <button class="go">Log in</button>
@@ -71,53 +115,108 @@
 
 <div id="app" hidden>
   <header>
-    <h1>MINI ROYALE ADMIN</h1>
-    <div class="stats" id="stats"></div>
-    <span class="push"></span>
-    <button id="outall" class="small">Log out everywhere</button>
-    <button id="out" class="small">Log out</button>
+    <div class="bar">
+      <h1>MINI ROYALE ADMIN</h1>
+      <span class="live"><span class="dot" id="dot"></span><span id="upd">connecting...</span></span>
+      <span class="push"></span>
+      <button id="pause" class="small">Pause updates</button>
+      <button id="now" class="small">Refresh</button>
+      <button id="outall" class="small">Log out everywhere</button>
+      <button id="out" class="small">Log out</button>
+    </div>
+    <nav id="nav">
+      <a href="#dash" data-t="dash">Dashboard</a>
+      <a href="#events" data-t="events">Events</a>
+      <a href="#rooms" data-t="rooms">Rooms<span class="n" id="n_rooms">0</span></a>
+      <a href="#accounts" data-t="accounts">Accounts<span class="n" id="n_acc">0</span></a>
+      <a href="#cup" data-t="cup">Championship</a>
+      <a href="#log" data-t="log">Activity<span class="n" id="n_log">0</span></a>
+    </nav>
   </header>
   <main>
-    <section>
-      <h2>Admin events</h2>
-      <div class="row">
-        <label for="room">Send to</label>
-        <select id="room"></select>
-        <label for="who">Player (empty = everyone)</label>
-        <input id="who" maxlength="12" placeholder="everyone" size="14">
+    <div class="tab" id="t_dash">
+      <div class="cards" id="kpi"></div>
+      <div class="grid2">
+        <section><h2>Server health</h2><div class="health" id="health"></div></section>
+        <section><h2>Top players (wins)</h2><div class="top" id="top"></div></section>
       </div>
+      <div class="grid2">
+        <section><h2>Live rooms</h2><div id="dash_rooms"></div></section>
+        <section><h2>Recent activity</h2><ul id="dash_log" class="plain"></ul></section>
+      </div>
+    </div>
+
+    <div class="tab" id="t_events" hidden>
+      <section class="target">
+        <h2>Target</h2>
+        <div class="row">
+          <label for="room">Send to</label>
+          <select id="room"></select>
+          <label for="who">Player</label>
+          <input id="who" maxlength="12" placeholder="everyone" size="14" list="online">
+          <datalist id="online"></datalist>
+          <span class="push"></span>
+          <input id="evfind" placeholder="Find an event" size="16">
+        </div>
+        <div class="chips" id="evkind"></div>
+      </section>
       <div class="events" id="events"></div>
-    </section>
-    <section>
-      <h2>Online rooms</h2>
-      <div class="scroll"><table><thead><tr><th>Code</th><th>Type</th><th>Host</th><th>Players</th><th>State</th><th>Mode</th><th>Open for</th><th>Data</th><th></th></tr></thead><tbody id="rooms"></tbody></table></div>
-      <div class="empty" id="norooms">Nobody is in an online room right now. (LAN games never show here - only quick play and room-code games.)</div>
-      <div class="empty" id="parties"></div>
-    </section>
-    <section>
-      <h2>Championship</h2>
-      <div id="cupinfo" class="empty"></div>
-      <div class="row">
-        <input id="cupname" maxlength="40" placeholder="Championship name" size="24">
-        <label for="cuphours">lasts (hours)</label>
-        <input id="cuphours" class="hours" type="number" min="1" max="336" value="48">
-        <button id="cupnew" class="go">Start a new championship</button>
-        <button id="cupend" class="danger">End it now</button>
-        <button id="cupdel" class="small">Delete</button>
-      </div>
-      <div class="scroll"><table><thead><tr><th>#</th><th>Player</th><th>Points</th><th>Games</th><th>Wins</th><th>Kills</th><th></th></tr></thead><tbody id="cuprows"></tbody></table></div>
-    </section>
-    <section>
-      <h2>Accounts</h2>
-      <div class="row"><input id="find" placeholder="Search a username" size="22">
-        <button id="ownpw" class="small">Set up / reset the owner account</button></div>
-      <div class="scroll"><table><thead><tr><th>Username</th><th>In room</th><th>Games</th><th>Wins</th><th>Kills</th><th>Best</th><th>Created</th><th>Last seen</th><th></th></tr></thead><tbody id="accs"></tbody></table></div>
-      <div class="empty" id="noaccs">No accounts yet.</div>
-    </section>
-    <section>
-      <h2>What you did</h2>
-      <ul id="log"></ul>
-    </section>
+    </div>
+
+    <div class="tab" id="t_rooms" hidden>
+      <section>
+        <h2>Online rooms</h2>
+        <div class="scroll"><table><thead><tr><th>Code</th><th>Type</th><th>Host</th><th>Players</th><th>State</th><th>Mode</th><th>Open for</th><th>Data</th><th></th></tr></thead><tbody id="rooms"></tbody></table></div>
+        <div class="empty" id="norooms">Nobody is in an online room right now. (LAN games never show here - only quick play and room-code games.)</div>
+      </section>
+      <section>
+        <h2>Parties</h2>
+        <div id="parties" class="empty"></div>
+      </section>
+    </div>
+
+    <div class="tab" id="t_accounts" hidden>
+      <section>
+        <h2>Accounts</h2>
+        <div class="row">
+          <input id="find" placeholder="Search a username  ( / )" size="24">
+          <div class="chips" id="accf"></div>
+          <span class="push"></span>
+          <button id="ownpw" class="small">Set up / reset the owner account</button>
+        </div>
+        <div class="empty" id="acccount"></div>
+        <div class="scroll"><table><thead><tr id="acchead"></tr></thead><tbody id="accs"></tbody></table></div>
+        <div class="empty" id="noaccs">No accounts yet.</div>
+        <button id="accmore" class="small more" hidden>Show more</button>
+      </section>
+    </div>
+
+    <div class="tab" id="t_cup" hidden>
+      <section>
+        <h2>Championship</h2>
+        <div id="cupinfo" class="empty"></div>
+        <div class="row">
+          <input id="cupname" maxlength="40" placeholder="Championship name" size="24">
+          <label for="cuphours">lasts (hours)</label>
+          <input id="cuphours" type="number" min="1" max="336" value="48" size="5">
+          <button id="cupnew" class="go">Start a new championship</button>
+          <button id="cupend" class="danger">End it now</button>
+          <button id="cupdel" class="small">Delete</button>
+        </div>
+        <div class="scroll"><table><thead><tr><th>#</th><th>Player</th><th>Points</th><th>Games</th><th>Wins</th><th>Kills</th><th></th></tr></thead><tbody id="cuprows"></tbody></table></div>
+      </section>
+    </div>
+
+    <div class="tab" id="t_log" hidden>
+      <section>
+        <h2>Activity and security log</h2>
+        <div class="row">
+          <input id="logfind" placeholder="Filter the log" size="24">
+          <div class="chips" id="logf"></div>
+        </div>
+        <ul id="log"></ul>
+      </section>
+    </div>
   </main>
 </div>
 <div id="toast" role="status"></div>
@@ -127,28 +226,34 @@
 const $ = id => document.getElementById(id);
 const WEAPONS = ["Minigun", "Rocket", "Grenade Launcher", "Flamethrower", "Sniper", "LMG", "Auto Shotgun", "Crossbow", "DMR",
                  "Rifle", "Shotgun", "Revolver", "SMG", "Machine Pistol", "Pistol"];
-// k = event name the game knows, f = extra inputs it needs
+// k = event name the game knows, f = extra inputs it needs, g = group
 const EVENTS = [
-  {k: "say", t: "Announcement", d: "A big gold message on every screen.", f: ["text"], b: "Send message"},
-  {k: "drops", t: "Supply drop rain", d: "Legendary supply drops fall all over the map.", f: ["n"], n: 6, b: "Drop them"},
-  {k: "gift", t: "Give a weapon", d: "Hands the weapon to the player (or to everyone).", f: ["w"], b: "Give"},
-  {k: "heal", t: "Full heal", d: "Full health and shield.", f: [], b: "Heal"},
-  {k: "xp", t: "Level up", d: "Enough XP for an instant level and a perk choice.", f: [], b: "Give XP"},
-  {k: "meteor", t: "Meteor shower", d: "Explosions land near random fighters. Dangerous!", f: ["n"], n: 8, b: "Launch", danger: 1},
-  {k: "smite", t: "Smite a player", d: "A huge blast right on the player typed above.", f: [], b: "Smite", danger: 1, who: 1},
-  {k: "storm", t: "Storm surge", d: "Battle Royale only: the storm jumps 30 seconds closer.", f: [], b: "Surge", danger: 1},
-  {k: "shield", t: "Full shields", d: "Shield back to full.", f: [], b: "Shield"},
-  {k: "ammo", t: "Ammo refill", d: "+150 ammo and full magazines.", f: [], b: "Refill"},
-  {k: "loot", t: "Epic loot", d: "A random epic or legendary weapon.", f: [], b: "Give loot"},
-  {k: "speed", t: "Speed boost", d: "Run faster for a while (number = longer).", f: ["n"], n: 3, b: "Boost"},
-  {k: "god", t: "Invincible", d: "Can't be hurt for a while (number = longer).", f: ["n"], n: 3, b: "Protect"},
-  {k: "freeze", t: "Freeze", d: "Can't move for that many seconds (max 10).", f: ["n"], n: 5, b: "Freeze", danger: 1},
-  {k: "tp", t: "Teleport", d: "To a random safe spot on the map.", f: [], b: "Teleport"},
-  {k: "revive", t: "Revive", d: "Brings dead players back into the match.", f: [], b: "Revive"},
-  {k: "nuke", t: "Remove all bots", d: "Every bot in the match is taken out.", f: [], b: "Remove bots", danger: 1},
-  {k: "end", t: "End the match", d: "Stops the match now (the last team standing wins, else a draw).", f: [], b: "End match", danger: 1},
+  {k: "say", t: "Announcement", d: "A big gold message on every screen.", f: ["text"], b: "Send message", g: "fun"},
+  {k: "drops", t: "Supply drop rain", d: "Legendary supply drops fall all over the map.", f: ["n"], n: 6, b: "Drop them", g: "fun"},
+  {k: "gift", t: "Give a weapon", d: "Hands the weapon to the player (or to everyone).", f: ["w"], b: "Give", g: "help"},
+  {k: "heal", t: "Full heal", d: "Full health and shield.", f: [], b: "Heal", g: "help"},
+  {k: "xp", t: "Level up", d: "Enough XP for an instant level and a perk choice.", f: [], b: "Give XP", g: "help"},
+  {k: "meteor", t: "Meteor shower", d: "Explosions land near random fighters. Dangerous!", f: ["n"], n: 8, b: "Launch", danger: 1, g: "chaos"},
+  {k: "smite", t: "Smite a player", d: "A huge blast right on the chosen player.", f: [], b: "Smite", danger: 1, who: 1, g: "chaos"},
+  {k: "storm", t: "Storm surge", d: "Battle Royale only: the storm jumps 30 seconds closer.", f: [], b: "Surge", danger: 1, g: "chaos"},
+  {k: "shield", t: "Full shields", d: "Shield back to full.", f: [], b: "Shield", g: "help"},
+  {k: "ammo", t: "Ammo refill", d: "+150 ammo and full magazines.", f: [], b: "Refill", g: "help"},
+  {k: "loot", t: "Epic loot", d: "A random epic or legendary weapon.", f: [], b: "Give loot", g: "help"},
+  {k: "speed", t: "Speed boost", d: "Run faster for a while (number = longer).", f: ["n"], n: 3, b: "Boost", g: "help"},
+  {k: "god", t: "Invincible", d: "Can't be hurt for a while (number = longer).", f: ["n"], n: 3, b: "Protect", g: "help"},
+  {k: "freeze", t: "Freeze", d: "Can't move for that many seconds (max 10).", f: ["n"], n: 5, b: "Freeze", danger: 1, g: "chaos"},
+  {k: "tp", t: "Teleport", d: "To a random safe spot on the map.", f: [], b: "Teleport", g: "fun"},
+  {k: "revive", t: "Revive", d: "Brings dead players back into the match.", f: [], b: "Revive", g: "help"},
+  {k: "nuke", t: "Remove all bots", d: "Every bot in the match is taken out.", f: [], b: "Remove bots", danger: 1, g: "match"},
+  {k: "end", t: "End the match", d: "Stops the match now (the last team standing wins, else a draw).", f: [], b: "End match", danger: 1, g: "match"},
 ];
-let tok = "", state = null, timer = 0, lastSig = "", ownerName = "", drawn = new Set();
+const EV_KINDS = [["all", "All"], ["help", "Helpful"], ["fun", "Fun"], ["chaos", "Chaos"], ["match", "Match"]];
+const ACC_F = [["all", "All"], ["on", "Online"], ["new", "New (24 h)"], ["ban", "Banned"], ["fl", "Cheat flags"], ["idle", "Never played"]];
+const ACC_COLS = [["u", "Username"], ["on", "In room"], ["g", "Games"], ["w", "Wins"], ["k", "Kills"], ["bk", "Best"], ["c", "Created"], ["seen", "Last seen"]];
+const LOG_F = [["all", "All"], ["sec", "Security"], ["alarm", "Warnings"]];
+const PAGE = 100;
+let tok = "", state = null, timer = 0, lastSig = "", ownerName = "", drawn = new Set(), paused = false, lastOk = 0, failing = false;
+let tab = "dash", evKind = "all", accF = "all", accSort = ["seen", -1], accLimit = PAGE, logF = "all";
 try { tok = sessionStorage.getItem("mr_admin") || ""; } catch (e) {}
 
 function el(tag, text, cls) {
@@ -182,7 +287,7 @@ function show(inside) {
   $("login").hidden = inside;
   $("app").hidden = !inside;
   clearInterval(timer);
-  if (inside) { refresh(); timer = setInterval(refresh, 5000); }
+  if (inside) { refresh(); timer = setInterval(() => { if (!paused && !document.hidden) refresh(); tick(); }, 5000); }
   else { tok = ""; try { sessionStorage.removeItem("mr_admin"); } catch (e) {} $("pw").focus(); }
 }
 async function act(body, sure) {
@@ -190,13 +295,36 @@ async function act(body, sure) {
   try { toast((await api("/admin/do", body)).m); refresh(); }
   catch (e) { toast(e.message); }
 }
+function tick() {
+  const d = $("dot"), u = $("upd");
+  d.className = "dot" + (failing ? " err" : paused ? " off" : "");
+  u.textContent = failing ? "server not answering - retrying" : paused ? "updates paused" : lastOk ? "updated " + ago(Date.now() / 1000 - lastOk) + " ago" : "connecting...";
+}
+function chips(box, opts, cur, pick) {
+  box.replaceChildren();
+  for (const [k, label] of opts) {
+    const b = el("button", label, "chip small" + (k === cur ? " on" : ""));
+    b.type = "button";
+    b.onclick = () => pick(k);
+    box.append(b);
+  }
+}
+function setTab(t) {
+  if (!$("t_" + t)) t = "dash";
+  tab = t;
+  for (const a of $("nav").querySelectorAll("a")) a.className = a.dataset.t === t ? "on" : "";
+  for (const s of document.querySelectorAll(".tab")) s.hidden = s.id !== "t_" + t;
+  try { sessionStorage.setItem("mr_tab", t); } catch (e) {}
+}
 
 function drawEvents(extra) {
   // every event the server knows gets a box: the known ones from EVENTS, any newer one with a plain "Send" button
-  const list = extra ? extra.filter(k => typeof k === "string" && !drawn.has(k)).map(k => ({k: k, t: k, d: "Event \"" + k + "\" (no description yet).", f: [], b: "Send"})) : EVENTS;
+  const list = extra ? extra.filter(k => typeof k === "string" && !drawn.has(k)).map(k => ({k: k, t: k, d: "Event \"" + k + "\" (no description yet).", f: [], b: "Send", g: "fun"})) : EVENTS;
   for (const ev of list) {
     drawn.add(ev.k);
-    const box = el("div", undefined, "ev"), ins = el("div", undefined, "in"), get = {};
+    const box = el("div", undefined, "ev" + (ev.danger ? " dz" : "")), ins = el("div", undefined, "in"), get = {};
+    box.dataset.g = ev.g;
+    box.dataset.s = (ev.t + " " + ev.d + " " + ev.k).toLowerCase();
     box.append(el("strong", ev.t), el("p", ev.d));
     for (const f of ev.f) {
       let i;
@@ -212,14 +340,42 @@ function drawEvents(extra) {
       const who = $("who").value.trim();
       if (ev.who && !who) return toast("Type the player's username first");
       if (ev.k === "say" && !get.text.value.trim()) return toast("Type a message first");
-      const body = {a: "event", k: ev.k, room: $("room").value, who: who};
+      const room = $("room").value;
+      const body = {a: "event", k: ev.k, room: room, who: who};
       for (const f in get) body[f] = f === "n" ? Number(get[f].value) || 1 : get[f].value;
-      act(body);
+      const where = (who || "everyone") + " in " + (room === "*" ? "ALL rooms" : "room " + room);
+      act(body, ev.danger ? ev.t + " for " + where + "?" : "");
     };
     ins.append(b);
     box.append(ins);
     $("events").append(box);
   }
+  filterEvents();
+}
+function filterEvents() {
+  const q = $("evfind").value.trim().toLowerCase();
+  for (const b of $("events").children) b.hidden = !(evKind === "all" || b.dataset.g === evKind) || (q && !b.dataset.s.includes(q));
+}
+
+function accRows(s, now) {
+  const q = $("find").value.trim().toLowerCase();
+  const keep = {all: () => true, on: a => a.on, new: a => now - a.c < 86400, ban: a => a.ban, fl: a => a.fl, idle: a => !a.g}[accF];
+  const [key, dir] = accSort;
+  return s.acc.filter(a => a.u.toLowerCase().includes(q) && keep(a)).sort((a, b) => {
+    const x = key === "u" || key === "on" ? String(a[key] || "").toLowerCase() : Number(a[key]) || 0;
+    const y = key === "u" || key === "on" ? String(b[key] || "").toLowerCase() : Number(b[key]) || 0;
+    return (x < y ? -1 : x > y ? 1 : 0) * dir || b.seen - a.seen;
+  });
+}
+function drawHead() {
+  const h = $("acchead");
+  h.replaceChildren();
+  for (const [k, label] of ACC_COLS) {
+    const th = el("th", label, "sort" + (accSort[0] === k ? (accSort[1] > 0 ? " up" : " down") : ""));
+    th.onclick = () => { accSort = [k, accSort[0] === k ? -accSort[1] : (k === "u" || k === "on" ? 1 : -1)]; drawHead(); draw(true); };
+    h.append(th);
+  }
+  h.append(el("th"));
 }
 
 function draw(force) {
@@ -228,33 +384,71 @@ function draw(force) {
   const sig = JSON.stringify(s, (k, v) => (k === "up" || k === "age" || k === "mb" || k === "seen" || k === "left") ? undefined : v);
   const changed = force || sig !== lastSig;
   lastSig = sig;
-  const st = $("stats");
-  st.replaceChildren();
-  const stat = (label, val, cls) => { const d = el("span", label + " "); d.append(el("b", String(val), cls)); st.append(d); };
-  stat("Rooms", s.rooms.length);
-  stat("Players online", s.rooms.reduce((n, r) => n + 1 + r.players.length, 0));
-  stat("Accounts", s.acc.length);
-  stat("Server awake for", ago(s.up));
-  if (s.db) stat("Stored data", s.enc ? "encrypted" : "NOT encrypted (no DATA_KEY)", s.enc ? "good" : "warn");
-  if (s.skipped) stat("Records refused", s.skipped + " (changed outside the server)", "bad");
-  if (!s.db) stat("Accounts are", "NOT saved (no database set up)", "warn");
-  else if (!s.loaded) stat("Database", "loading...", "warn");
-  else stat("Database", s.pending ? "saving..." : "saved", s.pending ? "warn" : "good");
-  if (s.parties) stat("Parties", s.parties.length);
-  stat("Owner key", s.okey ? "set - owner panel unlocked by key" : "NOT SET - owner panel locked (set Encryption_Key)", s.okey ? "good" : "warn");
-  const flagged = s.acc.filter(a => a.fl).length;
-  if (flagged) stat("Cheat flags", flagged + " account(s)", "bad");
+  const players = s.rooms.reduce((n, r) => n + 1 + r.players.length, 0), flagged = s.acc.filter(a => a.fl).length;
+  const day = s.acc.filter(a => now - a.seen < 86400).length, fresh = s.acc.filter(a => now - a.c < 86400).length;
+  $("n_rooms").textContent = s.rooms.length;
+  $("n_acc").textContent = s.acc.length;
+  const warns = s.log.filter(x => /WARNING|wrong|flag/i.test(x[1]) && now - x[0] < 86400).length;
+  $("n_log").textContent = warns || s.log.length;
+  $("n_log").className = "n" + (warns ? " hot" : "");
+
+  const kpi = $("kpi");
+  kpi.replaceChildren();
+  const card = (k, v, sub, cls) => { const c = el("div", undefined, "card"); c.append(el("div", k, "k"), el("div", String(v), "v " + (cls || "")), el("div", sub || "", "s")); kpi.append(c); };
+  card("Players online", players, s.rooms.length + " room" + (s.rooms.length === 1 ? "" : "s"), players ? "good" : "");
+  card("Accounts", s.acc.length, fresh + " new today");
+  card("Active today", day, "seen in the last 24 h");
+  card("Parties", (s.parties || []).length, "groups of friends");
+  card("Banned", s.acc.filter(a => a.ban).length, "accounts", "");
+  card("Cheat flags", flagged, flagged ? "check the Accounts tab" : "nothing suspicious", flagged ? "bad" : "good");
+
+  const hl = $("health");
+  hl.replaceChildren();
+  const hrow = (k, v, cls) => { const d = el("div"); d.append(el("span", k), el("span", v, cls)); hl.append(d); };
+  hrow("Server awake for", ago(s.up));
+  hrow("Accounts", !s.db ? "NOT saved (no database set up)" : !s.loaded ? "loading..." : s.pending ? "saving..." : "saved", !s.db ? "warn" : s.loaded && !s.pending ? "good" : "warn");
+  if (s.db) hrow("Stored data", s.enc ? "encrypted" : "NOT encrypted (no DATA_KEY)", s.enc ? "good" : "warn");
+  if (s.skipped) hrow("Records refused", s.skipped + " (changed outside the server)", "bad");
+  hrow("Owner key", s.okey ? "set - owner panel unlocked by key" : "NOT SET - set Encryption_Key", s.okey ? "good" : "warn");
+  hrow("Championship", s.cup && s.cup.name ? s.cup.name + (s.cup.on ? " (running)" : " (finished)") : "none");
   if (!changed) return;
   ownerName = typeof s.owner === "string" ? s.owner : "";
   if (Array.isArray(s.events)) drawEvents(s.events);
+
+  const best = s.acc.filter(a => a.w > 0).sort((a, b) => b.w - a.w || b.k - a.k).slice(0, 8), top = $("top");
+  top.replaceChildren();
+  if (!best.length) top.append(el("div", "No wins yet.", "empty"));
+  best.forEach((a, i) => {
+    const d = el("div"), m = el("div", undefined, "meter"), bar = el("i");
+    bar.style.width = Math.max(4, 100 * a.w / best[0].w) + "%";
+    m.append(bar);
+    d.append(el("b", "#" + (i + 1)), el("span", a.u), el("span", a.w + " wins / " + a.g + " games", "num"), m);
+    top.append(d);
+  });
+
+  const dr = $("dash_rooms");
+  dr.replaceChildren();
+  if (!s.rooms.length) dr.append(el("div", "No online rooms right now.", "empty"));
+  for (const r of s.rooms.slice(0, 6)) {
+    const d = el("div", undefined, "row");
+    d.append(el("span", r.c, "code"), el("span", r.host + " + " + r.players.length), el("span", {lobby: "lobby", play: "playing", over: "results"}[r.s] || r.s, r.s === "play" ? "good" : "warn"));
+    dr.append(d);
+  }
+  const dl = $("dash_log");
+  dl.replaceChildren();
+  for (const [t, text] of s.log.slice(0, 6)) { const li = el("li"); li.append(el("time", new Date(t * 1000).toLocaleTimeString() + "  "), text); dl.append(li); }
+  if (!s.log.length) dl.append(el("li", "Nothing yet.", "empty"));
 
   const sel = $("room"), keep = sel.value;
   if (document.activeElement !== sel) {              // never rebuild the list while it is open
     sel.replaceChildren(el("option", "All rooms"));
     sel.firstChild.value = "*";
-    for (const r of s.rooms) { const o = el("option", r.c + "  (" + r.host + ")"); o.value = r.c; sel.append(o); }
+    for (const r of s.rooms) { const o = el("option", r.c + "  (" + r.host + ", " + (1 + r.players.length) + " players)"); o.value = r.c; sel.append(o); }
     sel.value = [...sel.options].some(o => o.value === keep) ? keep : "*";
   }
+  const dlst = $("online");
+  dlst.replaceChildren();
+  for (const a of s.acc.filter(a => a.on)) { const o = el("option"); o.value = a.u; o.label = "in " + a.on; dlst.append(o); }
 
   const tb = $("rooms");
   tb.replaceChildren();
@@ -262,8 +456,8 @@ function draw(force) {
   for (const r of s.rooms) {
     const tr = el("tr"), acts = el("td", undefined, "acts"), b = el("button", "Close room", "small danger");
     b.onclick = () => act({a: "close", room: r.c}, "Close room " + r.c + " and disconnect everyone in it?");
-    const t = el("button", "Target", "small");
-    t.onclick = () => { $("room").value = r.c; toast("Events now go to room " + r.c); };
+    const t = el("button", "Send events", "small");
+    t.onclick = () => { $("room").value = r.c; setTab("events"); toast("Events now go to room " + r.c); };
     acts.append(t, b);
     tr.append(el("td", r.c, "code"), el("td", r.pub ? "quick play" : "room code"), el("td", r.host), el("td", r.players.join(", ") || "-"),
               el("td", {lobby: "in the lobby", play: "playing", over: "results"}[r.s] || r.s), el("td", r.m || "-"),
@@ -271,7 +465,7 @@ function draw(force) {
     tb.append(tr);
   }
   const ps = s.parties || [];
-  $("parties").textContent = ps.length ? "Parties: " + ps.map(p => p.c + " (" + p.mem.join(", ") + ")").join("   ") : "";
+  $("parties").textContent = ps.length ? ps.map(p => p.c + "  (leader " + p.lead + ": " + p.mem.join(", ") + ")").join("     ") : "No parties right now.";
 
   const cup = s.cup || {}, cb = $("cuprows");
   cb.replaceChildren();
@@ -285,17 +479,18 @@ function draw(force) {
     cb.append(tr);
   });
 
-  const q = $("find").value.trim().toLowerCase(), ab = $("accs");
-  const list = s.acc.filter(a => a.u.toLowerCase().includes(q)).sort((a, b) => (b.on ? 1 : 0) - (a.on ? 1 : 0) || b.seen - a.seen).slice(0, 200);
+  const all = accRows(s, now), list = all.slice(0, accLimit), ab = $("accs");
   ab.replaceChildren();
   $("noaccs").hidden = list.length > 0;
-  $("noaccs").textContent = s.acc.length ? "No account matches that search." : "No accounts yet.";
+  $("noaccs").textContent = s.acc.length ? "No account matches." : "No accounts yet.";
+  $("acccount").textContent = all.length ? "Showing " + list.length + " of " + all.length + (all.length !== s.acc.length ? " (" + s.acc.length + " in total)" : "") : "";
+  $("accmore").hidden = all.length <= list.length;
   for (const a of list) {
     const tr = el("tr"), acts = el("td", undefined, "acts");
     const btn = (label, body, sure, cls) => { const b = el("button", label, "small " + (cls || "")); b.onclick = () => act(body, sure); acts.append(b); };
     if (a.on) {
       const t = el("button", "Target", "small");
-      t.onclick = () => { $("who").value = a.u; $("room").value = a.on; toast("Events now aim at " + a.u); };
+      t.onclick = () => { $("who").value = a.u; $("room").value = a.on; setTab("events"); toast("Events now aim at " + a.u); };
       acts.append(t);
       btn("Kick", {a: "kick", u: a.u}, "Kick " + a.u + " out of the room?");
     }
@@ -304,26 +499,37 @@ function draw(force) {
     const p = el("button", "New password", "small");
     p.onclick = () => { const v = prompt("New password for " + a.u + " (8-64 characters):"); if (v) act({a: "pw", u: a.u, p: v}); };
     acts.append(p);
-    btn("Delete", {a: "del", u: a.u}, "Delete the account " + a.u + " for good?", "danger");
+    if (a.u !== ownerName) btn("Delete", {a: "del", u: a.u}, "Delete the account " + a.u + " for good?", "danger");
     const name = el("td", a.u);
-    if (a.ban) name.append(el("span", "  banned", "bad"));
-    if (a.fl) name.append(el("span", "  cheat flags: " + a.fl, "warn"));
+    if (a.u === ownerName) name.append(el("span", "owner", "tag warn"));
+    if (a.ban) name.append(el("span", "banned", "tag bad"));
+    if (a.fl) name.append(el("span", "flags " + a.fl, "tag warn"));
+    if (now - a.c < 86400) name.append(el("span", "new", "tag good"));
     tr.append(name, el("td", a.on || "-", a.on ? "code" : ""), el("td", a.g, "num"), el("td", a.w, "num"), el("td", a.k, "num"),
               el("td", a.bk, "num"), el("td", ago(now - a.c) + " ago", "num"), el("td", ago(now - a.seen) + " ago", "num"), acts);
     ab.append(tr);
   }
-
-  const lg = $("log");
+  drawLog();
+}
+function drawLog() {
+  if (!state) return;
+  const q = $("logfind").value.trim().toLowerCase(), lg = $("log");
   lg.replaceChildren();
-  for (const [t, text] of s.log) {
-    const li = el("li"), tm = el("time", new Date(t * 1000).toLocaleTimeString());
+  let n = 0;
+  for (const [t, text] of state.log) {
+    const sec = /^SECURITY|login|key|ban|kick|password|pw /i.test(text), alarm = /WARNING|wrong|flag/i.test(text);
+    if ((logF === "sec" && !sec) || (logF === "alarm" && !alarm) || (q && !text.toLowerCase().includes(q))) continue;
+    const li = el("li", undefined, alarm ? "alarm" : sec ? "sec" : ""), tm = el("time", new Date(t * 1000).toLocaleString());
     li.append(tm, text);
     lg.append(li);
+    n++;
   }
-  if (!s.log.length) lg.append(el("li", "Nothing yet."));
+  if (!n) lg.append(el("li", state.log.length ? "Nothing matches." : "Nothing yet."));
 }
 async function refresh() {
-  try { state = await api("/admin/state"); draw(); } catch (e) { if (tok) toast(e.message); }
+  try { state = await api("/admin/state"); lastOk = Date.now() / 1000; failing = false; draw(); }
+  catch (e) { failing = !!tok; if (tok && e.message !== "Log in again") toast(e.message); }
+  tick();
 }
 
 $("login").onsubmit = async e => {
@@ -348,7 +554,12 @@ $("outall").onclick = async () => {
   try { await api("/admin/do", {a: "logout_all"}); } catch (e) {}
   show(false);
 };
-$("find").oninput = () => { if (state) draw(true); };
+$("pause").onclick = () => { paused = !paused; $("pause").textContent = paused ? "Resume updates" : "Pause updates"; if (!paused) refresh(); tick(); };
+$("now").onclick = () => refresh();
+$("find").oninput = () => { accLimit = PAGE; if (state) draw(true); };
+$("accmore").onclick = () => { accLimit += PAGE; draw(true); };
+$("evfind").oninput = filterEvents;
+$("logfind").oninput = drawLog;
 $("cupnew").onclick = () => {
   const name = $("cupname").value.trim();
   if (!name) return toast("Type a name for the championship first");
@@ -362,7 +573,21 @@ $("ownpw").onclick = () => {      // nobody can register the owner name in the g
   const v = prompt("Password for the owner account " + ownerName + " (8-64 characters, not easy to guess):");
   if (v) act({a: "pw", u: ownerName, p: v});
 };
+for (const a of $("nav").querySelectorAll("a")) a.onclick = e => { e.preventDefault(); setTab(a.dataset.t); history.replaceState(null, "", "#" + a.dataset.t); };
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && !$("app").hidden) {
+    e.preventDefault(); setTab("accounts"); $("find").focus();
+  }
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && tok && !paused) refresh(); });
+chips($("evkind"), EV_KINDS, evKind, function pick(k) { evKind = k; chips($("evkind"), EV_KINDS, k, pick); filterEvents(); });
+chips($("accf"), ACC_F, accF, function pick(k) { accF = k; accLimit = PAGE; chips($("accf"), ACC_F, k, pick); if (state) draw(true); });
+chips($("logf"), LOG_F, logF, function pick(k) { logF = k; chips($("logf"), LOG_F, k, pick); drawLog(); });
+drawHead();
 drawEvents();
+let t0 = location.hash.slice(1);
+try { t0 = t0 || sessionStorage.getItem("mr_tab") || ""; } catch (e) {}
+setTab(t0 || "dash");
 show(!!tok);
 </script>
 </body>

@@ -55,6 +55,8 @@
   #login { max-width: 340px; margin: 12vh auto 0; display: grid; gap: 10px; padding: 0 16px; }
   #login p { margin: 0; color: var(--dim); font-size: 13px; }
   [hidden] { display: none !important; }
+  .push { margin-left: auto; }
+  input.hours { width: 80px; }
 </style>
 </head>
 <body>
@@ -71,7 +73,9 @@
   <header>
     <h1>MINI ROYALE ADMIN</h1>
     <div class="stats" id="stats"></div>
-    <button id="out" class="small" style="margin-left:auto">Log out</button>
+    <span class="push"></span>
+    <button id="outall" class="small">Log out everywhere</button>
+    <button id="out" class="small">Log out</button>
   </header>
   <main>
     <section>
@@ -96,7 +100,7 @@
       <div class="row">
         <input id="cupname" maxlength="40" placeholder="Championship name" size="24">
         <label for="cuphours">lasts (hours)</label>
-        <input id="cuphours" type="number" min="1" max="336" value="48" style="width:80px">
+        <input id="cuphours" class="hours" type="number" min="1" max="336" value="48">
         <button id="cupnew" class="go">Start a new championship</button>
         <button id="cupend" class="danger">End it now</button>
         <button id="cupdel" class="small">Delete</button>
@@ -144,7 +148,7 @@ const EVENTS = [
   {k: "nuke", t: "Remove all bots", d: "Every bot in the match is taken out.", f: [], b: "Remove bots", danger: 1},
   {k: "end", t: "End the match", d: "Stops the match now (the last team standing wins, else a draw).", f: [], b: "End match", danger: 1},
 ];
-let tok = "", state = null, timer = 0, lastSig = "";
+let tok = "", state = null, timer = 0, lastSig = "", ownerName = "", drawn = new Set();
 try { tok = sessionStorage.getItem("mr_admin") || ""; } catch (e) {}
 
 function el(tag, text, cls) {
@@ -187,8 +191,11 @@ async function act(body, sure) {
   catch (e) { toast(e.message); }
 }
 
-function drawEvents() {
-  for (const ev of EVENTS) {
+function drawEvents(extra) {
+  // every event the server knows gets a box: the known ones from EVENTS, any newer one with a plain "Send" button
+  const list = extra ? extra.filter(k => typeof k === "string" && !drawn.has(k)).map(k => ({k: k, t: k, d: "Event \"" + k + "\" (no description yet).", f: [], b: "Send"})) : EVENTS;
+  for (const ev of list) {
+    drawn.add(ev.k);
     const box = el("div", undefined, "ev"), ins = el("div", undefined, "in"), get = {};
     box.append(el("strong", ev.t), el("p", ev.d));
     for (const f of ev.f) {
@@ -238,6 +245,8 @@ function draw(force) {
   const flagged = s.acc.filter(a => a.fl).length;
   if (flagged) stat("Cheat flags", flagged + " account(s)", "bad");
   if (!changed) return;
+  ownerName = typeof s.owner === "string" ? s.owner : "";
+  if (Array.isArray(s.events)) drawEvents(s.events);
 
   const sel = $("room"), keep = sel.value;
   if (document.activeElement !== sel) {              // never rebuild the list while it is open
@@ -330,7 +339,15 @@ $("login").onsubmit = async e => {
     show(true);
   } catch (err) { $("lerr").textContent = err.message; }
 };
-$("out").onclick = () => show(false);
+$("out").onclick = async () => {
+  try { await api("/admin/logout", {}); } catch (e) {}   // ends the session on the server too, not only in this browser
+  show(false);
+};
+$("outall").onclick = async () => {
+  if (!confirm("Log out every admin session, on every device?")) return;
+  try { await api("/admin/do", {a: "logout_all"}); } catch (e) {}
+  show(false);
+};
 $("find").oninput = () => { if (state) draw(true); };
 $("cupnew").onclick = () => {
   const name = $("cupname").value.trim();
@@ -341,8 +358,9 @@ $("cupnew").onclick = () => {
 $("cupend").onclick = () => act({a: "cup_end"}, "End the championship now? The player with the most points wins.");
 $("cupdel").onclick = () => act({a: "cup_clear"}, "Delete the championship and all its points?");
 $("ownpw").onclick = () => {      // nobody can register the owner name in the game: it is set up here
-  const v = prompt("Password for the owner account JawharSas (8-64 characters, not easy to guess):");
-  if (v) act({a: "pw", u: "JawharSas", p: v});
+  if (!ownerName) return toast("Wait for the page to load first");
+  const v = prompt("Password for the owner account " + ownerName + " (8-64 characters, not easy to guess):");
+  if (v) act({a: "pw", u: ownerName, p: v});
 };
 drawEvents();
 show(!!tok);

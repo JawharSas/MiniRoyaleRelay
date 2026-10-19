@@ -222,9 +222,28 @@ class Join:
         s.key = secrets.token_urlsafe(16)              # one-time secret: only the room's host gets it (in newc)
 
 
+def gv_of(first):
+    """The game build (its NET_VER) a message says it comes from, 0 = unknown (games before this field)."""
+    v = first.get("gv") if isinstance(first, dict) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 < v < 100000 else 0
+
+
+def gv_msg(mine, room):
+    """Exact answer when a joiner's game build differs from the room's: says which side has to update."""
+    if mine < room:
+        return f"Your game is out of date (game v{mine}, room v{room}) - download the newest version"
+    return f"That room's host has an older game (room v{room}, yours v{mine}) - the host must update"
+
+
+def gv_fits(room, gv):
+    """Quick play / parties: only rooms of the same game build (unknown builds only meet unknown builds)."""
+    return room.gv == gv
+
+
 class Room:
-    def __init__(s, host, user, pub=False, mode="", ip="?"):
+    def __init__(s, host, user, pub=False, mode="", ip="?", gv=0):
         s.host, s.joins, s.bytes, s.t0 = host, {}, 0, time.time()
+        s.gv = gv                                      # the host's game build (NET_VER), 0 = unknown
         s.user, s.ip, s.info, s.res_t = user, ip, {}, 0.0
         s.paired = {}                                  # lower-case name -> address, for everybody who really got piped in
         s.match = None                                 # the match being played: {"t0", "roster": {name: address}}
@@ -778,15 +797,15 @@ async def do_cup(peer, first, acc):
 
 
 # ------------------------------ quick play and parties ------------------------------
-def find_room(mode, n):
-    """Fullest public room of that mode still in its lobby with space for n players."""
-    cands = [(c, r) for c, r in rooms.items() if r.pub and r.mode == mode and r.open_for(n)]
+def find_room(mode, n, gv=0):
+    """Fullest public room of that mode and game build still in its lobby with space for n players."""
+    cands = [(c, r) for c, r in rooms.items() if r.pub and r.mode == mode and r.open_for(n) and gv_fits(r, gv)]
     return max(cands, key=lambda cr: cr[1].live())[0] if cands else None
 
 
 async def do_quick(peer, first, acc):
     mode = first.get("m") if first.get("m") in QUICK_MODES else "br"
-    code = find_room(mode, 1)
+    code = find_room(mode, 1, gv_of(first))
     if code:
         await peer.send_json({"t": "qroom", "c": code})
     elif time.time() - quick_hold.get(mode, 0) < 8:          # somebody is opening a room right now: try again in a moment
@@ -849,7 +868,7 @@ async def do_party(peer, first, acc):
                 break
             if m.get("t") == "pgo" and k == p.leader:          # the leader starts quick play for the whole party
                 mode = m.get("m") if m.get("m") in QUICK_MODES else "squad"
-                code = find_room(mode, len(p.mem))
+                code = find_room(mode, len(p.mem), gv_of(m))
                 if code:
                     for pe in list(p.mem.values()):
                         try:
@@ -930,7 +949,7 @@ async def do_host(peer, a, first, ip):
     code = new_code()
     mode = first.get("m") if first.get("m") in QUICK_MODES else ""
     pub = bool(first.get("pub")) and bool(mode) and time.time() - pub_grant.pop(me, 0) < 120   # quick play said so
-    room = rooms[code] = Room(peer, a["n"], pub, mode, ip)
+    room = rooms[code] = Room(peer, a["n"], pub, mode, ip, gv_of(first))
     room.info = {"s": "lobby", "m": mode, "n": 1}
     if room.pub:
         quick_hold.pop(mode, None)                   # the new public room is open: quick play can use it at once
@@ -978,6 +997,10 @@ async def do_join(peer, first, a, ip):
     room = rooms.get(str(first.get("c", "")).upper())
     if room is None or room.live() >= MAX_PLAYERS:   # one answer for both, so codes cannot be probed
         await peer.send_json({"t": "err", "m": "That room is not open (wrong code, or it is full)"})
+        return
+    gv = gv_of(first)
+    if gv and room.gv and gv != room.gv:              # different game builds would only fail after connecting
+        await peer.send_json({"t": "err", "m": gv_msg(gv, room.gv), "gv": room.gv})
         return
     me = a["n"].lower()
     if me == room.user.lower() or any(j.user.lower() == me and not j.done for j in room.joins.values()):
@@ -1090,7 +1113,7 @@ def admin_state():
     return {"up": int(time.time() - T0), "db": store.db, "enc": store.enc, "skipped": store.skipped, "loaded": store.loaded, "pending": len(store.dirty), "log": log,
             "owner": OWNER_NAME,
             "rooms": [{"c": c, "host": r.user, "players": [j.user for j in r.joins.values() if not j.done],
-                       "s": r.info.get("s", "?"), "m": r.info.get("m", ""), "n": r.info.get("n", 0), "pub": int(r.pub),
+                       "s": r.info.get("s", "?"), "m": r.info.get("m", ""), "n": r.info.get("n", 0), "pub": int(r.pub), "gv": r.gv,
                        "age": int(time.time() - r.t0), "mb": round(r.bytes / 1e6, 1)} for c, r in rooms.items()],
             "parties": [{"c": p.code, "lead": p.leader, "mem": list(p.mem)} for p in parties.values()],
             "cup": cup_view(), "events": sorted(EVENTS),
